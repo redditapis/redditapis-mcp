@@ -1,6 +1,6 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Official MCP server for redditapis.com, the Reddit API (subreddit listings, post + comment + community + user + media search, comment trees, top posts, user profiles) as native tools for Claude, Cursor, and any MCP client.",
   "repository": {
     "type": "git",
