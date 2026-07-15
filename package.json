@@ -1,0 +1,48 @@
+{
+  "name": "redditapis-mcp",
+  "version": "0.1.0",
+  "description": "Official MCP server for redditapis.com, the Reddit API (subreddit listings, post + comment + community + user + media search, comment trees, top posts, user profiles) as native tools for Claude, Cursor, and any MCP client.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/redditapis/redditapis-mcp.git"
+  },
+  "type": "module",
+  "bin": {
+    "reddit-mcp": "src/index.js",
+    "redditapis-mcp": "src/index.js"
+  },
+  "main": "src/index.js",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js && node --check src/tools.js",
+    "test": "node test/tools.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8 || ^4.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "reddit",
+    "reddit-api",
+    "claude",
+    "cursor",
+    "redditapis"
+  ],
+  "author": "redditapis.com",
+  "license": "MIT",
+  "homepage": "https://www.redditapis.com",
+  "bugs": {
+    "url": "https://github.com/redditapis/redditapis-mcp/issues"
+  }
+}
