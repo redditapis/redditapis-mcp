@@ -43,6 +43,15 @@ const TIME = {
     "Time window, only applied when sort is 'top' or 'controversial'. E.g. 'week' = top of the past week. Ignored for other sorts.",
   ),
 };
+// Search honours `t` differently from a subreddit listing: it bounds the whole
+// result set (including the 'relevance' and 'top' sorts), not just top/controversial.
+// Omitting it makes Reddit default to 'all', which lets old high-upvote posts win a
+// broad 'relevance' query, so search gets a separate, search-accurate description.
+const TIME_SEARCH = {
+  t: z.enum(["hour", "day", "week", "month", "year", "all"]).optional().describe(
+    "Time window that bounds which posts the search returns, e.g. 'week' = only posts from the past week. Unlike a subreddit listing, search applies this to the 'relevance' and 'top' sorts too. When omitted, Reddit defaults to 'all', so a broad 'relevance' query surfaces old high-upvote posts that only loosely match. Pass 'week' or 'month' to keep results recent and on-topic.",
+  ),
+};
 const NSFW = {
   nsfw: z.enum(["true", "false"]).optional().describe(
     "Set 'true' to include over-18 / NSFW results. Omit or 'false' to exclude them (default).",
@@ -82,7 +91,7 @@ export const TOOLS = [
         "Optional subreddit name (without r/) to restrict the search to one community. Omit to search all of Reddit.",
       ),
       ...SORT_SEARCH,
-      ...TIME,
+      ...TIME_SEARCH,
       ...AFTER,
       ...NSFW,
       ...LIMIT,
@@ -111,7 +120,7 @@ export const TOOLS = [
     path: "/api/reddit/search/comments",
     description:
       "Search Reddit COMMENTS (not posts) by keyword across Reddit. Returns matching comments with author, body, score, subreddit, and the parent post link. Use to find first-hand opinions/answers buried in threads. Example: q='best mechanical keyboard' sort='top'.",
-    shape: { ...QUERY, ...SORT_SEARCH, ...TIME, ...AFTER, ...NSFW, ...LIMIT },
+    shape: { ...QUERY, ...SORT_SEARCH, ...TIME_SEARCH, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
     name: "reddit_search_media",
@@ -124,7 +133,7 @@ export const TOOLS = [
         "Media type filter. 'image', 'video', 'gif', or 'all' (default). Filters the raw Reddit results to that media kind.",
       ),
       ...SORT_SEARCH,
-      ...TIME,
+      ...TIME_SEARCH,
       ...AFTER,
       ...NSFW,
       ...LIMIT,
