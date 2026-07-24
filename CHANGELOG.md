@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.6
+- `reddit_deep_comment_search` v1.1, driven by a customer report that there was
+  no reliable way to expand a search past the first few posts:
+  - **Pagination.** The response `after` cursor is now honoured on input — pass it
+    back as `after` to expand the next batch of parent posts. Each call stays
+    bounded, so a caller can page as deep as they want. (The cursor was previously
+    returned but ignored.)
+  - **`limit` cap raised 10 -> 25** parent posts per call.
+  - **`max_comments`** optional cap on how many comments are returned; the
+    highest-scored are kept.
+  - Comments now come back **sorted by score** (highest first).
+  - Honest completeness meta: `comments_matched` (found) vs `comments_returned`
+    (after cap) vs `capped`, alongside `truncated`.
+  - Matching now runs on the **visible comment text at word boundaries** (link
+    URLs stripped), so a result always mentions the query where a reader can see
+    it — fixes the false positives from matching inside link URLs / as substrings.
+
 ## 0.1.5
 - Description honesty pass, three tool descriptions promised fields the live
   response does not return. All found by the new V-DESC gate
