@@ -19,8 +19,8 @@ check("every tool has a unique name, path, description, and shape", () => {
   }
 });
 
-check("catalog covers the 11 read endpoints", () => {
-  assert.equal(TOOLS.length, 11);
+check("catalog covers the 12 read endpoints", () => {
+  assert.equal(TOOLS.length, 12);
 });
 
 check("every path param {x} has a matching shape key", () => {

@@ -119,8 +119,23 @@ export const TOOLS = [
     name: "reddit_search_comments",
     path: "/api/reddit/search/comments",
     description:
-      "Search Reddit by COMMENT text. Reddit's comment search matches your keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions your query, carrying that post's title, selftext, score, and comment count. Use it to surface threads where a topic comes up in the replies that plain post-title search would miss. Reddit does not expose which specific comment matched or its text, so this returns posts, not comment bodies. Example: q='best mechanical keyboard' sort='top'.",
+      "Search Reddit by COMMENT text. Reddit's comment search matches your keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions your query, carrying that post's title, selftext, score, and comment count. Use it to surface threads where a topic comes up in the replies that plain post-title search would miss. Reddit does not expose which specific comment matched or its text, so this returns posts, not comment bodies. For the actual comment bodies, use reddit_deep_comment_search. Example: q='best mechanical keyboard' sort='top'.",
     shape: { ...QUERY, ...SORT_SEARCH, ...TIME_SEARCH, ...AFTER, ...NSFW, ...LIMIT },
+  },
+  {
+    name: "reddit_deep_comment_search",
+    path: "/api/reddit/search/comments/deep",
+    description:
+      "Genuine comment search: returns the ACTUAL comments whose body matches your keyword, with body, score, author, a comment-deep permalink, and the parent post. Unlike reddit_search_comments (which returns the parent posts, a Reddit limitation), this fetches each matching post's comment tree and filters the comment bodies for you, so you get first-hand opinions and answers directly. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-10 (default 5), not how many comments come back. Best-effort: a deleted or deeply-nested comment may be missed (a truncated flag says when a tree was too deep). Example: q='best mechanical keyboard' sort='top'.",
+    shape: {
+      ...QUERY,
+      ...SORT_SEARCH,
+      ...TIME_SEARCH,
+      ...NSFW,
+      limit: z.number().int().min(1).max(10).optional().describe(
+        "Number of parent POSTS to expand into their comment trees (1-10, default 5). Each is one upstream read, so higher = deeper coverage but slower and more expensive.",
+      ),
+    },
   },
   {
     name: "reddit_search_media",

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+- New tool `reddit_deep_comment_search`. Where `reddit_search_comments` returns
+  the parent posts (Reddit's comment search never hands back the comment), this
+  returns the ACTUAL matching comments with body, score, author, a comment-deep
+  permalink, and the parent post. It fetches each matching post's comment tree
+  and filters the bodies. Premium call (`limit` = parent posts to expand, 1-10).
+  Best-effort: a deleted or deeply-nested comment may be missed. Also cross-links
+  the two tools in their descriptions.
+
 ## 0.1.3
 - `reddit_search_comments` description no longer overpromises. It previously
   claimed to "Return matching comments with author, body, score" and to find
