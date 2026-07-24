@@ -69,7 +69,7 @@ export const TOOLS = [
     name: "reddit_subreddit_posts",
     path: "/api/reddit/posts",
     description:
-      "List posts from a subreddit by sort order. Use this to read a community's feed: newest, hot/trending, top-of-week, rising, etc. Returns post title, author, score, comment count, permalink, flair, and media, plus an `after` cursor for paging. Example: subreddit='programming' sort='top' t='week'.",
+      "List posts from a subreddit by sort order. Use this to read a community's feed: newest, hot/trending, top-of-week, rising, etc. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. Example: subreddit='programming' sort='top' t='week'.",
     shape: {
       subreddit: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'programming', 'AskReddit'). Required.",
@@ -141,7 +141,7 @@ export const TOOLS = [
     name: "reddit_search_media",
     path: "/api/reddit/search/media",
     description:
-      "Search Reddit posts filtered to media (images, video, gifs). Returns media posts with the media URL/type, author, score, and permalink. Use `kind` to narrow to a media type. Example: q='aurora borealis' kind='image'.",
+      "Search Reddit posts filtered to media (images, video, gifs). Returns media posts with the media URL/type, author, score, and the post url. Use `kind` to narrow to a media type. Example: q='aurora borealis' kind='image'.",
     shape: {
       ...QUERY,
       kind: z.enum(["image", "video", "gif", "all"]).optional().describe(
@@ -179,7 +179,7 @@ export const TOOLS = [
     name: "reddit_post",
     path: "/api/reddit/post/{id}",
     description:
-      "Fetch a single Reddit post by its id. Returns the full post object (title, author, score, body/selftext, media, permalink, subreddit). Use when you already have a post id and want its details. Example: id='abc123' (the base-36 id, no t3_ prefix).",
+      "Fetch a single Reddit post by its id. Returns the full post object (title, author, score, text, permalink, subreddit, url). Use when you already have a post id and want its details. Example: id='abc123' (the base-36 id, no t3_ prefix).",
     shape: {
       id: z.string().min(1).describe(
         "The post's base-36 id (e.g. 'abc123'), without the 't3_' fullname prefix. Required (path parameter).",

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.5
+- Description honesty pass, three tool descriptions promised fields the live
+  response does not return. All found by the new V-DESC gate
+  (reconcile-description-shape.mjs), which probes EVERY tool against the live API
+  and asserts no description claims a field the response lacks:
+  - `reddit_search_media` claimed a `permalink`; the response carries `url`. Corrected.
+  - `reddit_subreddit_posts` claimed `flair` and `media`; neither is in the
+    `/posts` response (fields are title, author, upvotes, comments, permalink, url,
+    text). Removed.
+  - `reddit_post` claimed `body/selftext` and `media`; `/post/{id}` returns `text`
+    (no `body`, no `selftext`, no `media`). Corrected to `text`.
+
 ## 0.1.4
 - New tool `reddit_deep_comment_search`. Where `reddit_search_comments` returns
   the parent posts (Reddit's comment search never hands back the comment), this
