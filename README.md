@@ -47,7 +47,7 @@ authenticated surface and are intentionally not exposed here.
 | `reddit_search` | `GET /api/reddit/search` | Search posts across Reddit or one subreddit |
 | `reddit_post_comments` | `GET /api/reddit/comments` | A post + its comment tree, by permalink |
 | `reddit_search_communities` | `GET /api/reddit/search/communities` | Find subreddits by name/topic |
-| `reddit_search_comments` | `GET /api/reddit/search/comments` | Search comments (not posts) |
+| `reddit_search_comments` | `GET /api/reddit/search/comments` | Search by comment text; returns the parent posts (Reddit limitation) |
 | `reddit_search_media` | `GET /api/reddit/search/media` | Search image/video/gif posts |
 | `reddit_search_users` | `GET /api/reddit/search/users` | Find redditors by name |
 | `reddit_subreddit_top` | `GET /api/reddit/sub/{name}/top` | Top posts of a subreddit for a time window |

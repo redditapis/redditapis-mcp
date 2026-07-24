@@ -61,4 +61,23 @@ check("a missing path param resolves to empty rather than throwing", () => {
   assert.equal(buildPath("/api/reddit/post/{id}", {}).path, "/api/reddit/post/");
 });
 
+check("search tools describe `t` as applying to 'relevance' (bug #11), listings keep the top/controversial caveat", () => {
+  const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  // Reddit's SEARCH endpoint applies `t` to the whole result set, including the
+  // 'relevance' and 'top' sorts, so the tool must NOT tell callers it is ignored,
+  // and should steer them to bound a broad relevance query (else old viral posts win).
+  for (const n of ["reddit_search", "reddit_search_comments", "reddit_search_media"]) {
+    const d = byName[n].shape.t.description;
+    assert.ok(typeof d === "string" && d.length > 0, `${n}: t has no description`);
+    assert.doesNotMatch(d, /ignored for other sorts/i, `${n}: t must not claim it is ignored for relevance search`);
+    assert.match(d, /relevance/i, `${n}: t description should say it applies to relevance`);
+  }
+  // A subreddit LISTING really does restrict `t` to top/controversial, so keep that.
+  assert.match(
+    byName["reddit_subreddit_posts"].shape.t.description,
+    /top.*controversial/i,
+    "reddit_subreddit_posts: listing t should keep the top/controversial caveat",
+  );
+});
+
 console.log(`\n==== ${pass} tests passed ====`);

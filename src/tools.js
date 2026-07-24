@@ -119,7 +119,7 @@ export const TOOLS = [
     name: "reddit_search_comments",
     path: "/api/reddit/search/comments",
     description:
-      "Search Reddit COMMENTS (not posts) by keyword across Reddit. Returns matching comments with author, body, score, subreddit, and the parent post link. Use to find first-hand opinions/answers buried in threads. Example: q='best mechanical keyboard' sort='top'.",
+      "Search Reddit by COMMENT text. Reddit's comment search matches your keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions your query, carrying that post's title, selftext, score, and comment count. Use it to surface threads where a topic comes up in the replies that plain post-title search would miss. Reddit does not expose which specific comment matched or its text, so this returns posts, not comment bodies. Example: q='best mechanical keyboard' sort='top'.",
     shape: { ...QUERY, ...SORT_SEARCH, ...TIME_SEARCH, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
