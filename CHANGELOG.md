@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8
+- **`reddit_deep_comment_search`** gains a research mode: pass `group_by="author"`
+  to get the distinct PEOPLE who mentioned your query (ranked by matching-comment
+  count, then total score) instead of a flat comment list. Each author carries
+  `comment_count`, `total_score`, the `subreddits` they matched in, and their
+  `top_comment`. `max_authors` caps the people returned; `meta.authors_capped`
+  flags a trim. `[deleted]` accounts are dropped. No price change (still $0.02).
+
 ## 0.1.7
 - Three new read tools (all $0.002, one upstream read each):
   - **`reddit_user_submitted`** (`GET /api/reddit/user/{name}/submitted`) — a

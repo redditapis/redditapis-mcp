@@ -126,7 +126,7 @@ export const TOOLS = [
     name: "reddit_deep_comment_search",
     path: "/api/reddit/search/comments/deep",
     description:
-      "Genuine comment search: returns the ACTUAL comments whose body matches your keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. Unlike reddit_search_comments (which returns the parent posts, a Reddit limitation), this fetches each matching post's comment tree and filters the comment bodies for you, so you get first-hand opinions and answers directly. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. To go deeper than one call, paginate: pass the response's `after` cursor back as `after` to expand the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so a result always mentions your query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). Example: q='best mechanical keyboard' sort='top'.",
+      "Genuine comment search: returns the ACTUAL comments whose body matches your keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. Unlike reddit_search_comments (which returns the parent posts, a Reddit limitation), this fetches each matching post's comment tree and filters the comment bodies for you, so you get first-hand opinions and answers directly. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. To go deeper than one call, paginate: pass the response's `after` cursor back as `after` to expand the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so a result always mentions your query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). Set group_by='author' for the research mode that returns WHO is talking about your query (distinct people ranked by matching-comment count) instead of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='top'.",
     shape: {
       ...QUERY,
       ...SORT_SEARCH,
@@ -138,6 +138,12 @@ export const TOOLS = [
       ),
       max_comments: z.number().int().min(1).optional().describe(
         "Optional cap on how many comments are returned; the highest-scored are kept. Omit to return every match. meta.capped is true when this trimmed the result.",
+      ),
+      group_by: z.enum(["author"]).optional().describe(
+        "Set to 'author' for the RESEARCH mode: instead of a flat comment list, return the distinct PEOPLE who mentioned your query, ranked by how many of their comments matched (then total score). Each author has comment_count, total_score, the subreddits they matched in, and their top comment. Omit for the normal comment list.",
+      ),
+      max_authors: z.number().int().min(1).optional().describe(
+        "Only with group_by='author'. Optional cap on how many people are returned (the most prolific first). Omit to return everyone. meta.authors_capped is true when this trimmed the list.",
       ),
     },
   },
