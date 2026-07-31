@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.7
+- Three new read tools (all $0.002, one upstream read each):
+  - **`reddit_user_submitted`** (`GET /api/reddit/user/{name}/submitted`) — a
+    user's submitted POSTS, the sibling of `reddit_user_comments`. Same post
+    shape as the subreddit listings.
+  - **`reddit_subreddit_comments`** (`GET /api/reddit/sub/{name}/comments`) — the
+    subreddit NEW-COMMENT stream (every new comment across a community, not one
+    post's thread). Same comment shape as `reddit_user_comments`.
+  - **`reddit_subreddit_about`** (`GET /api/reddit/sub/{name}/about`) — a
+    subreddit's public metadata (title, public description, subscriber count,
+    active-user count, creation date, type, NSFW flag). Returns a single object.
+  - Brings the published read-only tool count to 15.
+
 ## 0.1.6
 - `reddit_deep_comment_search` v1.1, driven by a customer report that there was
   no reliable way to expand a search past the first few posts:

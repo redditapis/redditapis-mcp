@@ -215,6 +215,45 @@ export const TOOLS = [
       ...LIMIT,
     },
   },
+  {
+    name: "reddit_user_submitted",
+    path: "/api/reddit/user/{name}/submitted",
+    description:
+      "List a Reddit user's submitted POSTS (their post history, the sibling of reddit_user_comments). Returns posts with title, author, score, comment count, and permalink, plus an `after` cursor. Use to see what a redditor posts, not just what they comment on. Example: name='spez' sort='top'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",
+      ),
+      ...SORT_USER,
+      ...TIME,
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
+    name: "reddit_subreddit_comments",
+    path: "/api/reddit/sub/{name}/comments",
+    description:
+      "Stream the NEWEST comments across an entire subreddit (Reddit's /r/<name>/comments feed), not one post's thread. Returns comments with body, author, score, subreddit, the parent post link, and timestamp, plus an `after` cursor. Poll it to catch new comments in a community as they are posted. Example: name='python'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
+      ),
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
+    name: "reddit_subreddit_about",
+    path: "/api/reddit/sub/{name}/about",
+    description:
+      "Fetch a subreddit's public metadata by name (Reddit's /r/<name>/about data). Returns the subreddit's title, public description, subscriber count, active-user count, creation timestamp, type, and NSFW flag. Use it to size or vet a community before listing or searching its posts. Example: name='python'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
+      ),
+    },
+  },
 ];
 
 // Turn tool args into a URL query string. Skips undefined/null/empty values.
