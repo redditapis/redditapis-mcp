@@ -264,7 +264,7 @@ export const TOOLS = [
     name: "reddit_subreddit_rules",
     path: "/api/reddit/sub/{name}/rules",
     description:
-      "Fetch a subreddit's posting rules by name (Reddit's /r/<name>/about/rules data). Returns a `rules` list — each with name, description, what it applies to (posts, comments, or all), violation reason, priority, and creation date — plus a `site_rules` list of Reddit's site-wide rules. Use it to check a community's rules before posting or commenting. Example: name='python'.",
+      "Fetch a subreddit's posting rules by name (Reddit's /r/<name>/about/rules data). Returns a `rules` list, each with name, description, what it applies to (posts, comments, or all), violation reason, priority, and creation date, plus a `site_rules` list of Reddit's site-wide rules. Use it to check a community's rules before posting or commenting. Example: name='python'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -281,6 +281,27 @@ export const TOOLS = [
         "Comma-separated post fullnames, each a t3_ prefix followed by the base-36 id (e.g. 't3_abc123,t3_def456'). Up to 100. Required (path parameter).",
       ),
     },
+  },
+  {
+    name: "reddit_subreddits_popular",
+    path: "/api/reddit/subreddits/popular",
+    description:
+      "Browse the most-subscribed, trending subreddits right now, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES communities by popularity; use reddit_search_communities instead to SEARCH communities by keyword.",
+    shape: { ...AFTER, ...LIMIT },
+  },
+  {
+    name: "reddit_subreddits_new",
+    path: "/api/reddit/subreddits/new",
+    description:
+      "Browse the newest subreddits, the communities most recently created, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES communities by recency; use reddit_search_communities instead to SEARCH communities by keyword.",
+    shape: { ...AFTER, ...LIMIT },
+  },
+  {
+    name: "reddit_subreddits_default",
+    path: "/api/reddit/subreddits/default",
+    description:
+      "Browse Reddit's default front-page set of subreddits, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES the default communities; use reddit_search_communities instead to SEARCH communities by keyword.",
+    shape: { ...AFTER, ...LIMIT },
   },
 ];
 

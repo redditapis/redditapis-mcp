@@ -1,8 +1,21 @@
 # Changelog
 
+## 0.1.10
+- Three new read tools for community DISCOVERY (all $0.002, one upstream read each):
+  - **`reddit_subreddits_popular`** (`GET /api/reddit/subreddits/popular`), browse
+    the most-subscribed, trending subreddits right now, no keyword needed.
+  - **`reddit_subreddits_new`** (`GET /api/reddit/subreddits/new`), browse the
+    newest subreddits, the communities most recently created.
+  - **`reddit_subreddits_default`** (`GET /api/reddit/subreddits/default`), browse
+    Reddit's default front-page set of subreddits.
+  - Each returns a `subreddits` list (same per-item shape as
+    `reddit_subreddit_about`) plus an `after` cursor, and takes only `after` +
+    `limit`. These BROWSE communities; `reddit_search_communities` SEARCHES by
+    keyword. Brings the published read-only tool count to 20.
+
 ## 0.1.9
 - Two new read tools (both $0.002, one upstream read each):
-  - **`reddit_subreddit_rules`** (`GET /api/reddit/sub/{name}/rules`) — a
+  - **`reddit_subreddit_rules`** (`GET /api/reddit/sub/{name}/rules`), a
     subreddit's posting rules: each rule's name, description, what it applies to
     (posts, comments, or all), violation reason, priority, and creation date,
     plus Reddit's site-wide rules. Check a community's rules before posting.
@@ -24,10 +37,10 @@
   - **`reddit_user_submitted`** (`GET /api/reddit/user/{name}/submitted`) — a
     user's submitted POSTS, the sibling of `reddit_user_comments`. Same post
     shape as the subreddit listings.
-  - **`reddit_subreddit_comments`** (`GET /api/reddit/sub/{name}/comments`) — the
+  - **`reddit_subreddit_comments`** (`GET /api/reddit/sub/{name}/comments`), the
     subreddit NEW-COMMENT stream (every new comment across a community, not one
     post's thread). Same comment shape as `reddit_user_comments`.
-  - **`reddit_subreddit_about`** (`GET /api/reddit/sub/{name}/about`) — a
+  - **`reddit_subreddit_about`** (`GET /api/reddit/sub/{name}/about`), a
     subreddit's public metadata (title, public description, subscriber count,
     active-user count, creation date, type, NSFW flag). Returns a single object.
   - Brings the published read-only tool count to 15.
