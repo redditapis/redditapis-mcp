@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.9
+- Two new read tools (both $0.002, one upstream read each):
+  - **`reddit_subreddit_rules`** (`GET /api/reddit/sub/{name}/rules`) — a
+    subreddit's posting rules: each rule's name, description, what it applies to
+    (posts, comments, or all), violation reason, priority, and creation date,
+    plus Reddit's site-wide rules. Check a community's rules before posting.
+  - **`reddit_by_id`** (`GET /api/reddit/by_id/{fullnames}`) — bulk-fetch posts
+    by comma-separated t3_ fullnames (up to 100) in one call. Same post shape as
+    the subreddit listings. Hydrate ids you already have without a call per post.
+  - Brings the published read-only tool count to 17.
+
 ## 0.1.8
 - **`reddit_deep_comment_search`** gains a research mode: pass `group_by="author"`
   to get the distinct PEOPLE who mentioned your query (ranked by matching-comment

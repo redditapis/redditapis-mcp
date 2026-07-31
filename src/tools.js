@@ -260,6 +260,28 @@ export const TOOLS = [
       ),
     },
   },
+  {
+    name: "reddit_subreddit_rules",
+    path: "/api/reddit/sub/{name}/rules",
+    description:
+      "Fetch a subreddit's posting rules by name (Reddit's /r/<name>/about/rules data). Returns a `rules` list — each with name, description, what it applies to (posts, comments, or all), violation reason, priority, and creation date — plus a `site_rules` list of Reddit's site-wide rules. Use it to check a community's rules before posting or commenting. Example: name='python'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
+      ),
+    },
+  },
+  {
+    name: "reddit_by_id",
+    path: "/api/reddit/by_id/{fullnames}",
+    description:
+      "Bulk-fetch posts by their t3_ fullnames in ONE call (up to 100), instead of a request per post. Pass a comma-separated list of fullnames you already have from a search or listing to hydrate them. Returns posts with title, author, score, comment count, and permalink — the same post shape as the listing endpoints. An unknown id is simply absent from the result. Example: fullnames='t3_abc123,t3_def456'.",
+    shape: {
+      fullnames: z.string().min(1).describe(
+        "Comma-separated post fullnames, each a t3_ prefix followed by the base-36 id (e.g. 't3_abc123,t3_def456'). Up to 100. Required (path parameter).",
+      ),
+    },
+  },
 ];
 
 // Turn tool args into a URL query string. Skips undefined/null/empty values.
