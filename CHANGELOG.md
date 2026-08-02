@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.11
+- Two new read tools for subreddit governance (both $0.002, one upstream read each):
+  - **`reddit_subreddit_moderators`** (`GET /api/reddit/sub/{name}/moderators`),
+    a subreddit's moderator team: each moderator's username, id, mod permissions,
+    flair text, and the time they were added. Returns a `moderators` list.
+  - **`reddit_subreddit_wiki`** (`GET /api/reddit/sub/{name}/wiki/{page}`), a
+    subreddit's wiki page by name and page: the page's markdown and HTML content,
+    a may-revise flag, and the last revision's metadata. Returns a single object.
+    The page may be multi-segment, for example index, rules, or config/sidebar.
+  - Brings the published read-only tool count to 22.
+
 ## 0.1.10
 - Three new read tools for community DISCOVERY (all $0.002, one upstream read each):
   - **`reddit_subreddits_popular`** (`GET /api/reddit/subreddits/popular`), browse

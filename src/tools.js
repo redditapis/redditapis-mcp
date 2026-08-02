@@ -272,6 +272,31 @@ export const TOOLS = [
     },
   },
   {
+    name: "reddit_subreddit_moderators",
+    path: "/api/reddit/sub/{name}/moderators",
+    description:
+      "Fetch a subreddit's moderator team by name (Reddit's /r/<name>/about/moderators data). Returns a `moderators` list, each with `name`, `id`, `mod_permissions`, `flair_text`, and `added` (when they joined the mod team). Use it to see who moderates a community. Example: name='python'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
+      ),
+    },
+  },
+  {
+    name: "reddit_subreddit_wiki",
+    path: "/api/reddit/sub/{name}/wiki/{page}",
+    description:
+      "Fetch a subreddit's wiki page by name and page (Reddit's /r/<name>/wiki/<page> data). Returns a single object with `content_md` and `content_html`, a `may_revise` flag, and the last revision (`revision_id`, `revision_date`, `revised_by`, `reason`). Use it to read a community's wiki, such as its rules or FAQ. The page may be multi-segment, for example index, rules, or config/sidebar. Example: name='python', page='index'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
+      ),
+      page: z.string().min(1).describe(
+        "Wiki page name (e.g. 'index'). Required (path parameter). May be multi-segment like 'config/sidebar'.",
+      ),
+    },
+  },
+  {
     name: "reddit_by_id",
     path: "/api/reddit/by_id/{fullnames}",
     description:
