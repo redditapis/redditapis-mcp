@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.12
+- reddit_search gains advanced filters applied to the returned page (the pullpush
+  filter-power model): min_score/max_score, min_comments/max_comments, is_video,
+  is_self, over_18, locked, stickied, spoiler, contest_mode, and sort_type
+  (score/num_comments/created). Because filtering is post-hoc on a page, the
+  response adds a meta object (fetched, returned, filtered_out); paginate with
+  after to filter more. No price change ($0.002), no new endpoint.
+
 ## 0.1.11
 - Two new read tools for subreddit governance (both $0.002, one upstream read each):
   - **`reddit_subreddit_moderators`** (`GET /api/reddit/sub/{name}/moderators`),

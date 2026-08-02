@@ -84,7 +84,7 @@ export const TOOLS = [
     name: "reddit_search",
     path: "/api/reddit/search",
     description:
-      "Search Reddit posts across all of Reddit or within one subreddit. Returns matching posts with author, score, comments, permalink, and an `after` cursor. Use for topic/keyword research, brand monitoring, or finding discussions. Scope to a community with `subreddit`. Example: q='rust vs go' sort='top' t='year'.",
+      "Search Reddit posts across all of Reddit or within one subreddit. Returns matching posts with author, score, comments, permalink, and an `after` cursor. Use for topic/keyword research, brand monitoring, or finding discussions. Scope to a community with `subreddit`. Optional advanced filters narrow the results by minimum/maximum score, comment count, media type, and post flags, with an optional re-sort of the page. Because filters are applied to the returned page, the response then carries a `meta` object with page-completeness counts, so a filtered result is never mistaken for the whole set; paginate with `after` to filter more. Example: q='rust vs go' sort='top' t='year'.",
     shape: {
       ...QUERY,
       subreddit: z.string().optional().describe(
@@ -95,6 +95,18 @@ export const TOOLS = [
       ...AFTER,
       ...NSFW,
       ...LIMIT,
+      min_score: z.number().int().optional().describe("Keep only posts with score >= this (applied to the returned page)."),
+      max_score: z.number().int().optional().describe("Keep only posts with score <= this."),
+      min_comments: z.number().int().optional().describe("Keep only posts with comment count >= this."),
+      max_comments: z.number().int().optional().describe("Keep only posts with comment count <= this."),
+      is_video: z.boolean().optional().describe("true = only video posts, false = only non-video."),
+      is_self: z.boolean().optional().describe("true = only self/text posts, false = only link posts."),
+      over_18: z.boolean().optional().describe("Filter the page by NSFW flag (distinct from nsfw, which controls inclusion in the search)."),
+      locked: z.boolean().optional().describe("Filter by the locked flag."),
+      stickied: z.boolean().optional().describe("Filter by the stickied flag."),
+      spoiler: z.boolean().optional().describe("Filter by the spoiler flag."),
+      contest_mode: z.boolean().optional().describe("Filter by the contest_mode flag."),
+      sort_type: z.enum(["score", "num_comments", "created"]).optional().describe("Re-sort the filtered page (descending) by this field."),
     },
   },
   {
