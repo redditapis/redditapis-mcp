@@ -5,9 +5,22 @@
 // Each tool maps 1:1 to a REST endpoint at https://api.redditapis.com/api/reddit.
 // Tool arg names map 1:1 to endpoint query params, EXCEPT path params written as
 // {name}/{id} in a tool's `path` (e.g. /api/reddit/sub/{name}/top), which are
-// interpolated into the URL and removed from the query string. Every tool here
-// is a READ (GET); reddit writes (comment/vote/DM) are a separate authenticated
-// surface and are intentionally out of scope for this reads MCP.
+// interpolated into the URL and removed from the query string.
+//
+// WRITES: reddit writes (comment/vote/DM -- posting AS the customer to Reddit
+// itself) are a separate authenticated surface and remain intentionally out of
+// scope here, that boundary is unchanged. Monitor/webhook management (2026-08-11,
+// task #43) is a DIFFERENT kind of write: it configures the customer's OWN
+// redditapis.com account (an alerting subscription), the same risk class as
+// reading their own usage -- it never posts, votes, or DMs anywhere. Those tools
+// are marked `write: true` (and `destructive: true` for remove/delete), which
+// index.js turns into MCP's `readOnlyHint`/`destructiveHint` annotations so a
+// client can surface a confirmation before calling them.
+//
+// BODY-BEARING TOOLS: a POST tool's args become a JSON request body instead of
+// a query string (see buildBody below). `filterSpecFields` on a tool declares
+// which of its args nest under `filter_spec` in that body; everything else in
+// `shape` stays top-level (id, cadence_s, active, url, kind, ...).
 import { z } from "zod";
 
 // Shared Zod input-schema fragments.
@@ -63,7 +76,52 @@ const QUERY = {
   ),
 };
 
-// The tool catalog. All reads (GET). Path params are {name}/{id} placeholders.
+// ── monitoring filter_spec fragments, shared by monitor_add and monitor_update ──
+// v1 is SUBREDDIT-SCOPED ONLY (all-Reddit keyword monitoring is not available)
+// and POSTS ONLY (comment monitoring is validated but rejected server-side) --
+// both match apps/api/src/lib/monitor-filter.js's own validation exactly, so a
+// tool call fails fast in the client rather than round-tripping a 400.
+const MONITOR_SUBREDDIT = {
+  subreddit: z.array(z.string().min(1)).min(1).max(50).describe(
+    "Subreddits to watch, without the r/ prefix (e.g. ['SaaS', 'startups']). REQUIRED, 1 to 50. All-of-Reddit monitoring is not available in v1 -- every monitor must scope to specific subreddits.",
+  ),
+};
+const MONITOR_FILTER_FIELDS = {
+  q: z.string().max(200).optional().describe(
+    "Free-text keyword or phrase to match. Matched against the fields in `search_in` (default title+body+url). Omit to match every new post in the watched subreddits.",
+  ),
+  author: z.string().max(200).optional().describe("Only match posts by this Reddit username (without u/)."),
+  exclude_terms: z.array(z.string().min(1).max(200)).max(50).optional().describe(
+    "Posts containing any of these terms are suppressed even if they otherwise match. Use to cut noise (e.g. exclude 'giveaway' from a brand-mention monitor).",
+  ),
+  domain: z.array(z.string().min(1).max(200)).max(50).optional().describe(
+    "Outbound link domains to watch for (e.g. ['example.com']). Matches the post's link URL, any URL inside a self-post/comment body, and (validated but not yet populated by the live poller) a crosspost's original link. Exact-or-subdomain match only: 'example.com' matches 'blog.example.com' but never 'notexample.com'. Does NOT resolve shortened links (bit.ly, t.co).",
+  ),
+  include_any: z.array(z.string().min(1).max(200)).max(50).optional().describe(
+    "At least ONE of these terms must appear (OR match) for the post to qualify, on top of any `q`."
+  ),
+  include_all: z.array(z.string().min(1).max(200)).max(50).optional().describe(
+    "EVERY one of these terms must appear (AND match) for the post to qualify, on top of any `q`."
+  ),
+  search_in: z.array(z.enum(["title", "body", "url", "permalink"])).min(1).optional().describe(
+    "Which fields keyword/term matching is scoped to. Default ['title', 'body', 'url']. Narrow to avoid false positives, e.g. a term that only appears in a URL slug matching a post that never mentions it in prose.",
+  ),
+  group: z.string().max(64).optional().describe(
+    "Optional label to bundle multiple matches into one delivery instead of one webhook call per match. Omit for one delivery per matching item.",
+  ),
+  min_score: z.number().int().optional().describe("Only match posts with at least this many upvotes."),
+  nsfw: z.boolean().optional().describe("Include NSFW/over-18 posts. Default false (excluded)."),
+};
+const MONITOR_ID = {
+  id: z.string().min(1).describe("The monitor's id, from reddit_monitor_add's response or reddit_monitor_list."),
+};
+const WEBHOOK_ID = {
+  id: z.string().min(1).describe("The webhook's id, from reddit_monitor_webhook_create's response or reddit_monitor_webhook_list."),
+};
+
+// The tool catalog. Path params are {name}/{id} placeholders. Monitor/webhook
+// tools additionally carry `write`/`destructive` and, for POST tools whose
+// body nests a filter_spec, `filterSpecFields` (see buildBody below).
 export const TOOLS = [
   {
     name: "reddit_subreddit_posts",
@@ -340,6 +398,120 @@ export const TOOLS = [
       "Browse Reddit's default front-page set of subreddits, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES the default communities; use reddit_search_communities instead to SEARCH communities by keyword.",
     shape: { ...AFTER, ...LIMIT },
   },
+
+  // ── monitoring: manage the caller's own account, never posts/votes/DMs Reddit itself ──
+  {
+    name: "reddit_monitor_add",
+    path: "/api/reddit/monitor/add",
+    method: "POST",
+    write: true,
+    filterSpecFields: ["subreddit", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
+    description:
+      "Create a new Reddit monitor: watch one or more subreddits for new posts matching a filter, and get every match delivered to a webhook you've registered with reddit_monitor_webhook_create. Requires an active redditapis.com monitoring plan (monitoring has no free tier) and at least one monitor slot free (see reddit_monitor_list's `slots`). Forward-looking only from the moment of creation, or from `baseline_item_id` if given -- it never backfills posts that already existed. Returns the created monitor (with its `id`) on success, or `subscription_required` (402) if there is no active plan, `monitor_slots_exhausted` (402) if the plan's slot limit is reached, or `subreddit_not_found` (400) if a named subreddit does not exist.",
+    shape: {
+      ...MONITOR_SUBREDDIT,
+      ...MONITOR_FILTER_FIELDS,
+      cadence_s: z.number().int().positive().optional().describe(
+        "Requested poll interval in seconds. May only be SLOWER than the plan tier's floor, never faster -- a too-low value is silently clamped up to the tier's minimum. Omit to use the tier's default.",
+      ),
+      baseline_item_id: z.string().optional().describe(
+        "A Reddit post fullname (e.g. 't3_abc123') to use as the starting point instead of 'now' -- matching starts strictly after this item. Omit to start from the moment of creation.",
+      ),
+    },
+  },
+  {
+    name: "reddit_monitor_list",
+    path: "/api/reddit/monitor/list",
+    description:
+      "List every monitor on the caller's account, with each one's filter, active state, and cadence, plus a `slots` object ({used, total, tier}) showing how many monitor slots are purchased vs in use. Reading your own list never requires an active plan (a lapsed subscription shows an empty or paused list, not an error).",
+    shape: {},
+  },
+  {
+    name: "reddit_monitor_update",
+    path: "/api/reddit/monitor/update",
+    method: "POST",
+    write: true,
+    filterSpecFields: ["subreddit", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
+    description:
+      "Update an existing monitor: pause/resume it (`active`), change its poll interval (`cadence_s`), or replace its filter entirely. IMPORTANT: if you pass ANY filter field (subreddit, q, domain, etc.), it REPLACES the whole filter, it does not merge with the existing one -- resupply every field you want kept, including `subreddit`. Omit all filter fields to change only `active`/`cadence_s` and leave the filter untouched. Returns 404 `monitor_not_found` if the id does not exist or is not yours.",
+    shape: {
+      ...MONITOR_ID,
+      ...{ subreddit: MONITOR_SUBREDDIT.subreddit.optional().describe(MONITOR_SUBREDDIT.subreddit.description + " Required if you are replacing the filter at all.") },
+      ...MONITOR_FILTER_FIELDS,
+      active: z.boolean().optional().describe("Set false to pause the monitor (stops matching/delivering), true to resume it."),
+      cadence_s: z.number().int().positive().optional().describe("New poll interval in seconds, same tier-floor clamping as reddit_monitor_add."),
+    },
+  },
+  {
+    name: "reddit_monitor_remove",
+    path: "/api/reddit/monitor/remove",
+    method: "POST",
+    write: true,
+    destructive: true,
+    description:
+      "Permanently delete a monitor. This cannot be undone -- its filter and delivery history stop growing (past deliveries remain queryable via reddit_monitor_deliveries) and its slot is freed for a new monitor. Returns 404 `monitor_not_found` if the id does not exist or is not yours.",
+    shape: { ...MONITOR_ID },
+  },
+  {
+    name: "reddit_monitor_health",
+    path: "/api/reddit/monitor/health",
+    description:
+      "Per-monitor health: whether it's active, its poll cadence, when it last matched something, and delivery counts for the last 24h (`delivered_24h`, `failed_24h`, `suppressed_24h`) plus whether its delivery ceiling has been hit (`ceiling_reached`). Use this to check whether a monitor is silently starved before assuming it just has nothing to report.",
+    shape: { ...MONITOR_ID },
+  },
+  {
+    name: "reddit_monitor_deliveries",
+    path: "/api/reddit/monitor/deliveries",
+    description:
+      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). Answers 'what did I actually get sent', not just 'how many' (see reddit_monitor_health for counts). Omit `id` to aggregate history across every monitor you own.",
+    shape: {
+      id: z.string().optional().describe("Narrow to one monitor's history. Omit to aggregate across every monitor you own."),
+      status: z.enum(["pending", "delivered", "failed", "dead", "suppressed"]).optional().describe(
+        "Filter to one delivery status. 'dead' = retries exhausted, gave up. 'suppressed' = matched but deliberately not sent (e.g. delivery ceiling). Omit for all statuses.",
+      ),
+      limit: z.number().int().min(1).max(200).optional().describe("Max rows to return, 1 to 200. Default 50."),
+      before: z.string().optional().describe("ISO 8601 timestamp cursor for pagination -- pass the `created_at` of the oldest row from the previous page to fetch older deliveries."),
+    },
+  },
+  {
+    name: "reddit_monitor_webhook_create",
+    path: "/api/reddit/monitor/webhook/create",
+    method: "POST",
+    write: true,
+    description:
+      "Register a delivery target for monitors to send matches to. Requires an active monitoring plan (a webhook with no plan could never receive anything). Returns the webhook with its signing `secret` SHOWN ONCE -- store it immediately, it is never returned again by reddit_monitor_webhook_list. HTTPS only; the URL is re-validated (including a fresh DNS check) at every delivery, not just at creation.",
+    shape: {
+      url: z.string().url().describe("HTTPS URL to deliver matches to. Must be publicly reachable HTTPS, no embedded credentials, no loopback/private/link-local address."),
+      kind: z.enum(["webhook", "slack", "discord", "email"]).optional().describe(
+        "Payload shape to send. 'slack'/'discord' format as native incoming-webhook messages; 'webhook' (default) sends redditapis' generic signed JSON envelope; 'email' is not yet a real delivery transport.",
+      ),
+    },
+  },
+  {
+    name: "reddit_monitor_webhook_list",
+    path: "/api/reddit/monitor/webhook/list",
+    description: "List every webhook registered on the caller's account. Never returns the signing secret (shown once, at creation, by reddit_monitor_webhook_create).",
+    shape: {},
+  },
+  {
+    name: "reddit_monitor_webhook_test",
+    path: "/api/reddit/monitor/webhook/test",
+    method: "POST",
+    write: true,
+    description:
+      "Send a one-off test delivery to a registered webhook (rate-limited to 10/min) so you can confirm it's wired up correctly before waiting for a real match. Uses the webhook's `kind` to format the test payload the same way a real delivery would. Returns 404 `webhook_not_found` if the id does not exist or is not yours, or `webhook_url_rejected` if the URL fails re-validation (e.g. now resolves to a private address).",
+    shape: { ...WEBHOOK_ID },
+  },
+  {
+    name: "reddit_monitor_webhook_delete",
+    path: "/api/reddit/monitor/webhook/delete",
+    method: "POST",
+    write: true,
+    destructive: true,
+    description:
+      "Permanently delete a webhook. Any monitor still pointing at it will fail to deliver until repointed at a different webhook -- this does NOT cascade-delete or pause the monitors using it. Cannot be undone. Returns 404 `webhook_not_found` if the id does not exist or is not yours.",
+    shape: { ...WEBHOOK_ID },
+  },
 ];
 
 // Turn tool args into a URL query string. Skips undefined/null/empty values.
@@ -365,4 +537,28 @@ export function buildPath(template, args) {
   const rest = {};
   for (const [k, v] of Object.entries(args || {})) if (!used.has(k)) rest[k] = v;
   return { path, rest };
+}
+
+// Turn a POST tool's args into the JSON body the REST endpoint expects. A field
+// named in `tool.filterSpecFields` nests under `filter_spec`; everything else
+// stays top-level (id, cadence_s, active, url, kind, ...). Skips undefined so
+// an omitted optional arg is genuinely absent from the body, never sent as
+// `null` -- monitor-handlers.js tells "field not provided" apart from "field
+// explicitly cleared" (e.g. updateMonitor only replaces filter_spec when at
+// least one filter field is present at all).
+export function buildBody(tool, args) {
+  const filterFields = new Set(tool.filterSpecFields || []);
+  const body = {};
+  let filterSpec = null;
+  for (const [k, v] of Object.entries(args || {})) {
+    if (v === undefined) continue;
+    if (filterFields.has(k)) {
+      filterSpec = filterSpec || {};
+      filterSpec[k] = v;
+    } else {
+      body[k] = v;
+    }
+  }
+  if (filterSpec) body.filter_spec = filterSpec;
+  return body;
 }

@@ -3,8 +3,10 @@
 //
 // Exposes the Reddit API as native MCP tools for Claude, Cursor, and any MCP
 // client: subreddit listings, post + comment search, community/user/media/comment
-// search, a post's comment tree, subreddit top posts, and user profile/comments.
-// Each tool is a thin, typed wrapper over a REST endpoint at
+// search, a post's comment tree, subreddit top posts, user profile/comments, and
+// (since 0.2.0) managing your own redditapis.com monitors and webhooks -- create/
+// list/update/remove a monitor, register/list/test/delete a webhook, and read
+// delivery history. Each tool is a thin, typed wrapper over a REST endpoint at
 // https://api.redditapis.com. The server holds no state and forwards your API
 // key on every call. The tool catalog lives in ./tools.js.
 //
@@ -16,16 +18,20 @@
 //
 // Run:  npx -y redditapis-mcp@latest   (stdio transport)
 
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { TOOLS, buildQuery, buildPath } from "./tools.js";
+import { TOOLS, buildQuery, buildPath, buildBody } from "./tools.js";
 
 const API_KEY = process.env.REDDITAPIS_KEY || process.env.REDDIT_APIS_KEY;
 const BASE_URL = (
   process.env.REDDITAPIS_BASE_URL || "https://api.redditapis.com"
 ).replace(/\/+$/, "");
 const REQUEST_TIMEOUT_MS = Number(process.env.REDDITAPIS_TIMEOUT_MS || 30000);
-const VERSION = "0.1.0";
+// Read from package.json rather than a hand-maintained literal -- this drifted
+// silently to "0.1.0" while the published package reached 0.1.12, so every
+// User-Agent and MCP server handshake understated its own version for months.
+const { version: VERSION } = createRequire(import.meta.url)("../package.json");
 
 if (!API_KEY) {
   console.error(
@@ -34,12 +40,15 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-// REST call. Resolves any {param} path placeholders from args, sends the rest as
-// the query string, and forwards the API key as a Bearer token (redditapis.com
+// REST call. Resolves any {param} path placeholders from args, and for GET
+// sends the rest as a query string; for POST it sends the rest as a JSON body
+// (see buildBody -- `tool` is passed through only to read its
+// `filterSpecFields`). Forwards the API key as a Bearer token (redditapis.com
 // authenticates via `Authorization: Bearer <key>` only).
-async function callEndpoint(pathTemplate, args, method = "GET") {
+async function callEndpoint(pathTemplate, args, method = "GET", tool = null) {
   const { path, rest } = buildPath(pathTemplate, args);
-  const q = buildQuery(rest);
+  const isWrite = method !== "GET";
+  const q = isWrite ? "" : buildQuery(rest);
   const url = `${BASE_URL}${path}${q ? `?${q}` : ""}`;
 
   const headers = {
@@ -47,11 +56,16 @@ async function callEndpoint(pathTemplate, args, method = "GET") {
     accept: "application/json",
     "user-agent": `reddit-mcp/${VERSION}`,
   };
+  let requestBody;
+  if (isWrite) {
+    headers["content-type"] = "application/json";
+    requestBody = JSON.stringify(buildBody(tool || {}, rest));
+  }
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method, headers, signal: ctrl.signal });
+    const res = await fetch(url, { method, headers, body: requestBody, signal: ctrl.signal });
     const body = await res.text();
     if (!res.ok) {
       const hint =
@@ -85,14 +99,14 @@ for (const tool of TOOLS) {
   const method = tool.method || "GET";
   const annotations = {
     title: tool.name,
-    readOnlyHint: !tool.write, // every tool here is a read
+    readOnlyHint: !tool.write,
     destructiveHint: Boolean(tool.destructive),
     openWorldHint: true,
   };
   server.registerTool(
     tool.name,
     { description: tool.description, inputSchema: tool.shape, annotations },
-    async (args) => callEndpoint(tool.path, args, method),
+    async (args) => callEndpoint(tool.path, args, method, tool),
   );
 }
 

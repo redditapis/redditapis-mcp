@@ -4,13 +4,13 @@
 [![npm downloads](https://img.shields.io/npm/dm/redditapis-mcp)](https://www.npmjs.com/package/redditapis-mcp)
 [![license](https://img.shields.io/npm/l/redditapis-mcp)](./LICENSE)
 
-Official **Model Context Protocol** server for [redditapis.com](https://www.redditapis.com), the Reddit API as native tools for Claude, Cursor, Windsurf, and any MCP client. It turns Reddit reads (search, subreddit listings, comment trees, user profiles, community metadata) into typed tools your agent can call directly.
+Official **Model Context Protocol** server for [redditapis.com](https://www.redditapis.com), the Reddit API as native tools for Claude, Cursor, Windsurf, and any MCP client. It turns Reddit reads (search, subreddit listings, comment trees, user profiles, community metadata) into typed tools your agent can call directly, plus (since 0.2.0) managing your own redditapis.com monitors and webhooks.
 
-Ask your agent to search Reddit for a topic, read a community's top posts of the week, pull a user's comment history, surface the redditors talking about a product, or read a subreddit's rules before you engage, and it calls the API for you. Every tool maps to a REST endpoint at `https://api.redditapis.com`; the server holds no state and forwards your API key on each call.
+Ask your agent to search Reddit for a topic, read a community's top posts of the week, pull a user's comment history, surface the redditors talking about a product, or read a subreddit's rules before you engage, and it calls the API for you. It can also set up a monitor that watches a subreddit for new posts matching a filter and delivers them to a webhook, then check what it's actually delivered. Every tool maps to a REST endpoint at `https://api.redditapis.com`; the server holds no state and forwards your API key on each call.
 
 ## Quick start
 
-No install needed. Run with `npx`. You need one thing: an API key from **[redditapis.com](https://www.redditapis.com)**. Reads work with just that key, so there is no account login or session step to set up.
+No install needed. Run with `npx`. You need one thing: an API key from **[redditapis.com](https://www.redditapis.com)**. Reads work with just that key, so there is no account login or session step to set up. Monitor/webhook management additionally requires an active monitoring plan (monitoring has no free tier).
 
 ## Setup
 
@@ -99,7 +99,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-22 tools, all reads. This server is **read-only** by design. Reddit writes (posting, commenting, voting, DMs) are a separate authenticated surface and are intentionally out of scope here, so every tool below works with just your API key, with no account login or session step.
+32 tools: 22 reads plus 10 monitor/webhook management tools. Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below).
 
 A few conventions across the catalog:
 
@@ -153,6 +153,23 @@ A few conventions across the catalog:
 | `reddit_subreddits_popular` | `GET /api/reddit/subreddits/popular` | Browse the most-subscribed, trending subreddits right now. |
 | `reddit_subreddits_new` | `GET /api/reddit/subreddits/new` | Browse the newest subreddits, most recently created first. |
 | `reddit_subreddits_default` | `GET /api/reddit/subreddits/default` | Browse Reddit's default front-page set of subreddits. |
+
+### Monitoring: manage your own monitors and webhooks
+
+v1 monitors are **subreddit-scoped, posts-only** (no all-of-Reddit keyword watch, no comment monitoring yet). Creating or updating a monitor or webhook needs an active plan; reading your own list/health/deliveries never does.
+
+| Tool | Endpoint | What it does |
+|---|---|---|
+| `reddit_monitor_add` | `POST /api/reddit/monitor/add` | Create a monitor: subreddits to watch plus an optional filter (keyword, author, domain, include/exclude terms, min score, NSFW). Forward-looking only from creation (or from `baseline_item_id`). |
+| `reddit_monitor_list` | `GET /api/reddit/monitor/list` | List every monitor on your account, plus `slots` ({used, total, tier}). |
+| `reddit_monitor_update` | `POST /api/reddit/monitor/update` | Pause/resume (`active`), re-cadence, or replace a monitor's filter. Passing any filter field REPLACES the whole filter -- resupply everything you want kept. |
+| `reddit_monitor_remove` | `POST /api/reddit/monitor/remove` | Permanently delete a monitor. Cannot be undone. |
+| `reddit_monitor_health` | `GET /api/reddit/monitor/health` | Per-monitor delivered/failed/suppressed counts (last 24h) and whether the delivery ceiling has been hit. |
+| `reddit_monitor_deliveries` | `GET /api/reddit/monitor/deliveries` | The actual posts delivered (or attempted), newest first, with real content -- not just counts. Omit `id` to aggregate across every monitor you own. |
+| `reddit_monitor_webhook_create` | `POST /api/reddit/monitor/webhook/create` | Register a delivery target (`webhook`/`slack`/`discord`). Returns a signing secret shown ONCE. |
+| `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret. |
+| `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
+| `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
 
 ## Usage examples
 
@@ -210,15 +227,35 @@ t: "year"
 
 Then `reddit_subreddit_rules` with `{ name: "webdev" }`, and finally `reddit_post_comments` with the `permalink` from a search result, for example `{ permalink: "/r/webdev/comments/abc123/some_title/" }`, to pull the post and its comment tree.
 
-## Reads only, no session needed
+### Set up brand monitoring and check what came in
 
-Because this server exposes reads and nothing that writes, there is no account linking, login, or cookie step: your API key alone authorizes every call. Reddit write actions (posting, commenting, voting, sending DMs) are handled by a separate authenticated surface outside this package and are deliberately not exposed here, so an agent using this server cannot take an action on any account.
+> "Watch r/SaaS and r/startups for mentions of my product, send matches to my Slack, and show me what's come in so far."
+
+The agent calls `reddit_monitor_webhook_create` with:
+
+```
+url: "https://hooks.slack.com/services/..."
+kind: "slack"
+```
+
+Then `reddit_monitor_add` with:
+
+```
+subreddit: ["SaaS", "startups"]
+q: "my product name"
+```
+
+Later, `reddit_monitor_deliveries` with `{ id: "<monitor id from the add response>" }` returns the actual matching posts sent so far, or `reddit_monitor_health` for just the counts.
+
+## No session needed for reads; monitor/webhook writes need an active plan
+
+Reads need nothing but your API key -- no account linking, login, or cookie step. Reddit write actions (posting, commenting, voting, sending DMs) are handled by a separate authenticated surface outside this package and remain deliberately not exposed here, so an agent using this server can never post, vote, or DM as you on Reddit. Monitor/webhook management tools are a different kind of write: they configure your OWN redditapis.com account (an alerting subscription) and require an active monitoring plan for anything that creates or changes state (`reddit_monitor_add`/`update`/`remove`, `reddit_monitor_webhook_create`/`test`/`delete`); reading your own list, health, or delivery history never does.
 
 ## Troubleshooting
 
 **`HTTP 401 (invalid or missing API key)`** Check that `REDDITAPIS_KEY` is set correctly in your MCP client config and matches the key from [redditapis.com](https://www.redditapis.com).
 
-**`HTTP 402 (insufficient credits)`** Top up your account at [redditapis.com](https://www.redditapis.com).
+**`HTTP 402 (insufficient credits)`** Top up your account at [redditapis.com](https://www.redditapis.com). For a monitor/webhook write specifically, a 402 body of `subscription_required` means there is no active monitoring plan (monitoring has no free tier); `monitor_slots_exhausted` means the plan's monitor slot limit is already in use -- `reddit_monitor_list`'s `slots` field shows used vs total.
 
 **`HTTP 403 (access forbidden)`** The subreddit or user may be private, banned, or quarantined, or your plan may not include this endpoint.
 
@@ -248,7 +285,7 @@ npm start       # run the stdio server (needs REDDITAPIS_KEY)
 
 **Do I need a Reddit developer account?** No. Get an API key at [redditapis.com](https://www.redditapis.com); there is no application or approval step.
 
-**Can it post, comment, or vote?** No. This server is read-only. All 22 tools read Reddit; writes are a separate authenticated surface and are not exposed here.
+**Can it post, comment, or vote?** No. All 22 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. The other 10 tools manage your OWN redditapis.com monitors/webhooks, which is a write, but never a write to Reddit itself.
 
 **Which clients are supported?** Claude Desktop, Claude Code, Cursor, Windsurf, and VS Code (Copilot agent mode), or any Model Context Protocol client.
 

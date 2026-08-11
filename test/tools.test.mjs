@@ -2,7 +2,7 @@
 // validates every tool is well-formed and that buildQuery/buildPath are correct,
 // so the catalog can't regress without the test spawning stdio or hitting the API.
 import assert from "node:assert/strict";
-import { TOOLS, buildQuery, buildPath } from "../src/tools.js";
+import { TOOLS, buildQuery, buildPath, buildBody } from "../src/tools.js";
 
 let pass = 0;
 const check = (name, fn) => { fn(); pass++; console.log(`PASS  ${name}`); };
@@ -19,8 +19,8 @@ check("every tool has a unique name, path, description, and shape", () => {
   }
 });
 
-check("catalog covers the 12 read endpoints", () => {
-  assert.equal(TOOLS.length, 12);
+check("catalog covers the 22 read endpoints plus 10 monitor/webhook management tools", () => {
+  assert.equal(TOOLS.length, 32);
 });
 
 check("every path param {x} has a matching shape key", () => {
@@ -30,10 +30,48 @@ check("every path param {x} has a matching shape key", () => {
   }
 });
 
-check("no tool is marked write/destructive (this is a reads MCP)", () => {
+// This used to be "no tool is marked write/destructive" -- a hard invariant
+// that the whole catalog was reads-only. Monitor/webhook management (2026-08-11,
+// task #43) deliberately breaks that: those tools configure the caller's OWN
+// redditapis.com account (an alerting subscription), never Reddit itself, so
+// they are a different risk class from the comment/vote/DM writes this catalog
+// still excludes. The invariant that survives: every GET tool is still a pure
+// read, and every write is one of the 10 named monitor/webhook tools -- so a
+// future addition can't silently start mutating state without being caught here.
+const WRITE_TOOL_NAMES = new Set([
+  "reddit_monitor_add", "reddit_monitor_update", "reddit_monitor_remove",
+  "reddit_monitor_webhook_create", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete",
+]);
+const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete"]);
+
+check("only the 6 named monitor/webhook tools are writes; everything else is a pure read", () => {
   for (const t of TOOLS) {
-    assert.ok(!t.write, `${t.name} unexpectedly write`);
-    assert.ok(!t.destructive, `${t.name} unexpectedly destructive`);
+    const method = t.method || "GET";
+    if (WRITE_TOOL_NAMES.has(t.name)) {
+      assert.equal(method, "POST", `${t.name}: a write tool must be POST`);
+      assert.ok(t.write === true, `${t.name}: expected write: true`);
+    } else {
+      assert.equal(method, "GET", `${t.name}: expected a plain read (GET)`);
+      assert.ok(!t.write, `${t.name} unexpectedly marked write`);
+    }
+  }
+  // Every name in the allowlist must actually exist in the catalog -- catches
+  // a rename that would otherwise leave this check vacuously passing.
+  const names = new Set(TOOLS.map((t) => t.name));
+  for (const n of WRITE_TOOL_NAMES) assert.ok(names.has(n), `expected write tool ${n} not found in catalog`);
+});
+
+check("only remove/delete tools are destructive", () => {
+  for (const t of TOOLS) {
+    assert.equal(Boolean(t.destructive), DESTRUCTIVE_TOOL_NAMES.has(t.name), `${t.name}: destructive flag mismatch`);
+  }
+});
+
+check("every write tool's filterSpecFields (if any) are all present in its own shape", () => {
+  for (const t of TOOLS) {
+    for (const f of t.filterSpecFields || []) {
+      assert.ok(f in t.shape, `${t.name}: filterSpecFields names "${f}" but shape has no such key`);
+    }
   }
 });
 
@@ -59,6 +97,24 @@ check("buildPath url-encodes path params and leaves non-templated paths untouche
 
 check("a missing path param resolves to empty rather than throwing", () => {
   assert.equal(buildPath("/api/reddit/post/{id}", {}).path, "/api/reddit/post/");
+});
+
+check("buildBody nests filterSpecFields under filter_spec and leaves the rest top-level", () => {
+  const tool = { filterSpecFields: ["subreddit", "q"] };
+  const body = buildBody(tool, { subreddit: ["SaaS"], q: "launch", cadence_s: 300, baseline_item_id: undefined });
+  assert.deepEqual(body, { cadence_s: 300, filter_spec: { subreddit: ["SaaS"], q: "launch" } });
+});
+
+check("buildBody omits filter_spec entirely when no filterSpecFields are present in args", () => {
+  assert.deepEqual(buildBody({ filterSpecFields: ["subreddit", "q"] }, { id: "mon_1", active: false }), { id: "mon_1", active: false });
+});
+
+check("buildBody with no filterSpecFields declared sends everything top-level", () => {
+  assert.deepEqual(buildBody({}, { id: "wh_1" }), { id: "wh_1" });
+});
+
+check("buildBody drops undefined but keeps false/0/empty-string args (real values, not omissions)", () => {
+  assert.deepEqual(buildBody({}, { active: false, min_score: 0, group: "", skip: undefined }), { active: false, min_score: 0, group: "" });
 });
 
 check("search tools describe `t` as applying to 'relevance' (bug #11), listings keep the top/controversial caveat", () => {

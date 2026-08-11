@@ -23,8 +23,22 @@ const client = new Client({ name: "reddit-mcp-smoke", version: "1.0.0" }, { capa
 try {
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 11, `expected 11 tools, got ${tools.length}`);
+  assert.equal(tools.length, 32, `expected 32 tools, got ${tools.length}`);
   console.log(`PASS  connected, ${tools.length} tools listed`);
+
+  // Protocol-level only (no live call, no side effect, no plan required): the
+  // 10 monitor/webhook tools registered with the correct read-only/destructive
+  // annotations, matching tools.js's own write/destructive flags.
+  const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+  for (const n of ["reddit_monitor_add", "reddit_monitor_list", "reddit_monitor_update", "reddit_monitor_remove",
+                    "reddit_monitor_health", "reddit_monitor_deliveries", "reddit_monitor_webhook_create",
+                    "reddit_monitor_webhook_list", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete"]) {
+    assert.ok(byName[n], `expected tool ${n} to be registered`);
+  }
+  assert.equal(byName.reddit_monitor_remove.annotations?.destructiveHint, true, "monitor_remove should be destructiveHint:true");
+  assert.equal(byName.reddit_monitor_list.annotations?.readOnlyHint, true, "monitor_list should be readOnlyHint:true");
+  assert.equal(byName.reddit_monitor_add.annotations?.readOnlyHint, false, "monitor_add should be readOnlyHint:false");
+  console.log(`PASS  all 10 monitor/webhook tools registered with correct annotations`);
 
   const res = await client.callTool({
     name: "reddit_subreddit_posts",

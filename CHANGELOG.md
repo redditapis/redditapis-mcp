@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.2.0
+- **10 new monitor/webhook management tools** (task #43), the first WRITES this
+  catalog has ever carried. Unlike the reddit comment/vote/DM writes this MCP
+  still excludes, these configure the caller's OWN redditapis.com account (an
+  alerting subscription), never Reddit itself:
+  - **`reddit_monitor_add`** / **`reddit_monitor_list`** / **`reddit_monitor_update`** /
+    **`reddit_monitor_remove`** — create, list, update (pause/resume/re-filter/
+    re-cadence), and permanently delete a monitor. Requires an active plan to
+    create/update (monitoring has no free tier); reading your own list never does.
+  - **`reddit_monitor_health`** — per-monitor delivered/failed/suppressed counts and
+    whether the delivery ceiling has been hit.
+  - **`reddit_monitor_deliveries`** — the actual Reddit posts a monitor's webhook
+    has received, not just counts (task #47, the feature the operator asked for
+    directly: "can they check which all posts their webhook has received").
+  - **`reddit_monitor_webhook_create`** / **`reddit_monitor_webhook_list`** /
+    **`reddit_monitor_webhook_test`** / **`reddit_monitor_webhook_delete`** —
+    register a delivery target (secret shown once), list registered webhooks
+    (secret never re-shown), send a one-off test delivery, and permanently
+    delete one.
+  - All 10 verified live end to end against production (real create/update/
+    pause/resume/remove/re-add round trips, a real signed test delivery), not
+    just unit-tested against a mock.
+  - `remove`/`webhook_delete` are marked `destructive: true`; every write is
+    `write: true`; every other tool remains a pure, `readOnlyHint: true` read.
+  - Fixed two pre-existing drifts found while touching this file: the reported
+    `VERSION` was hardcoded `"0.1.0"` while the package had shipped up to
+    0.1.12 for months (now read live from package.json, so it can't drift
+    again), and `test/tools.test.mjs` / `test/smoke.mjs` both hardcoded stale
+    tool counts (12 and 11) against an actual catalog of 22 -- neither test
+    file had been updated as the catalog grew.
+  - Brings the tool count to 32 (22 reads + 10 monitor/webhook writes).
+
 ## 0.1.12
 - reddit_search gains advanced filters applied to the returned page (the pullpush
   filter-power model): min_score/max_score, min_comments/max_comments, is_video,
