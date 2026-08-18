@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.2
+- **Security: 10 Dependabot alerts closed (3 high, 6 moderate, 1 low)**, all in
+  transitive dependencies pulled in by `@modelcontextprotocol/sdk` (never a
+  direct dependency of this package): `hono` (SSR output cross-user
+  disclosure, ReDoS in CORS/language middleware, header handling in the proxy
+  helper), `fast-uri` (host confusion via a backslash authority delimiter),
+  `ip-address` (three separate SSRF/trust-boundary bypasses via octal,
+  IPv4-mapped, and CIDR-suffix address confusion), and `@hono/node-server`
+  (path traversal on Windows). Fixed by a clean reinstall against the
+  existing `@modelcontextprotocol/sdk: ^1.0.0` range, which already permitted
+  the patched versions; no version constraint changed, only the resolved
+  tree (SDK 1.29.0 to 1.30.0, hono to 4.13.2, fast-uri to 3.1.5, ip-address
+  to 10.5.0, @hono/node-server to 2.1.1). This server only imports the SDK's
+  stdio transport (confirmed: `src/index.js` never imports `hono` or the
+  SDK's HTTP transport), so `hono` and `@hono/node-server` never load at
+  runtime here; `fast-uri` and `ip-address` sit deeper in the SDK's own
+  dependency tree and were not individually traced. Fixed regardless, since
+  Dependabot flags them independent of reachability and a clean scan is
+  the point.
+
 ## 0.3.1
 - **Fix: the server no longer exits at startup when `REDDITAPIS_KEY` is missing.**
   A registry connectivity scanner (Smithery, Glama, the official MCP registry,
