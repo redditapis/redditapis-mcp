@@ -29,9 +29,13 @@ const LIMIT = {
     "Max items to return (1 to 100). The API clamps out-of-range values; endpoint default applies if omitted.",
   ),
 };
+// Shared by every listing and search tool, so the rule about what an EMPTY
+// cursor means is stated once rather than pasted into a dozen tool descriptions
+// where one of them would eventually be missed.
 const AFTER = {
   after: z.string().optional().describe(
-    "Opaque Reddit pagination cursor from the previous response's `after` field (a fullname like `t3_abc123`). Omit on the first call; pass it to fetch the next page.",
+    "Opaque pagination cursor. Pass back the previous response's `after` value EXACTLY as it was returned; the format is not stable and a hand-written Reddit fullname loses the paging depth the cursor carries. Omit on the first call. " +
+      "When `after` comes back null there is no next page to request, and that does NOT reliably mean you have every item: Reddit often stops serving a busy listing long before it runs out. Read `listing_status` on that final response instead. It is `complete`, `truncated` or `unknown`, and ONLY `complete` means nothing is missing. Never report `truncated` or `unknown` to a user as the end of the data; say the answer is partial and widen across sorts, timeframes or search terms.",
   ),
 };
 // Sort vocabularies differ by endpoint (they map to different Reddit listings):
@@ -75,18 +79,59 @@ const QUERY = {
     "Search query text. Supports Reddit search syntax (e.g. `subreddit:webdev`, `author:spez`, `\"exact phrase\"`, `title:...`).",
   ),
 };
-
-// ── monitoring filter_spec fragments, shared by monitor_add and monitor_update ──
-// v1 is SUBREDDIT-SCOPED ONLY (all-Reddit keyword monitoring is not available)
-// and POSTS ONLY (comment monitoring is validated but rejected server-side) --
-// both match apps/api/src/lib/monitor-filter.js's own validation exactly, so a
-// tool call fails fast in the client rather than round-tripping a 400.
-const MONITOR_SUBREDDIT = {
-  subreddit: z.array(z.string().min(1)).min(1).max(50).describe(
-    "Subreddits to watch, without the r/ prefix (e.g. ['SaaS', 'startups']). REQUIRED, 1 to 50. All-of-Reddit monitoring is not available in v1 -- every monitor must scope to specific subreddits.",
+// Auth-scoped private-listing cookie fragment (upvoted/saved/hidden/gilded).
+// These four are READS, but of PRIVATE data Reddit only serves to the account
+// that owns it, so -- unlike every other read tool above -- they need the
+// caller's own Reddit session cookies, obtained from POST /api/reddit/login
+// (a REST call, not an MCP tool here). GET can't carry cookies as a body, so
+// they travel as flat query-string args, same convention routes/vote.js uses
+// for its flat POST-body cookie fields.
+const LISTING_COOKIES = {
+  reddit_session: z.string().min(1).describe(
+    "Reddit account session cookie. Obtain it by calling POST /api/reddit/login on the REST API first (not an MCP tool) and reusing the `reddit_session` cookie it returns. Required.",
+  ),
+  loid: z.string().min(1).describe(
+    "Reddit account loid cookie, from the same POST /api/reddit/login response. Required.",
+  ),
+  csrf_token: z.string().optional().describe(
+    "Reddit CSRF cookie, from the same login response. Not required for a read (CSRF only guards state-changing calls) but harmless to pass if you have it.",
   ),
 };
+
+// ── monitoring filter_spec fragments, shared by monitor_add and monitor_update ──
+// v1 is SUBREDDIT-SCOPED ONLY (all-Reddit keyword monitoring is not available),
+// matching apps/api/src/lib/monitor-filter.js's own validation exactly, so a
+// tool call fails fast in the client rather than round-tripping a 400.
+//
+// THE "POSTS ONLY" HALF OF THIS COMMENT WAS STALE AND COST A REAL GAP. It said
+// comment monitoring was "validated but rejected server-side", which stopped
+// being true when comment monitoring shipped (migrations 009/010, PRs
+// #532/#537/#541). Because `kind` was never added here, the capability was
+// unreachable from MCP entirely: verified live 2026-08-13 by setting
+// filter_spec.kind="both" over raw REST and watching real comment deliveries
+// land within two minutes, on a tier the pricing page sells as "posts and
+// comments". A stale comment is a defect report, not documentation.
+// SITEWIDE (2026-08-13). `subreddit` is OPTIONAL now: omit it and pass `q` to
+// watch ALL of Reddit for that keyword. Leaving it required here would repeat
+// the exact failure the comment above describes -- a shipped, sold capability
+// that no MCP client can reach because one schema field was never relaxed,
+// with nothing anywhere reporting an error.
+const MONITOR_SUBREDDIT_DESC =
+  "Subreddits to watch, without the r/ prefix (e.g. ['SaaS', 'startups']). 1 to 50. " +
+  "OMIT this entirely (and set `q`) to watch ALL of Reddit for a keyword -- a monitor must be anchored by " +
+  "either a subreddit list or a keyword, never neither. Do NOT pass ['all']: r/all is Reddit's site-wide " +
+  "listing rather than a subreddit, so it is refused with 400 subreddit_reserved. Sitewide monitors are " +
+  "capped per plan tier (see reddit_monitor_list's `slots`) and cover POSTS only.";
+const MONITOR_SUBREDDIT = {
+  subreddit: z.array(z.string().min(1)).min(1).max(50).optional().describe(MONITOR_SUBREDDIT_DESC),
+};
 const MONITOR_FILTER_FIELDS = {
+  // SITEWIDE ONLY BY DESIGN, and the description says so in the first clause
+  // because an agent that passes it alongside `subreddit` gets a 400 and needs
+  // to know from the schema, not from the error, which of the two to drop.
+  exclude_subreddits: z.array(z.string().min(1)).max(50).optional().describe(
+    "Subreddits to SUPPRESS, without the r/ prefix (e.g. ['politics', 'AskReddit']). SITEWIDE MONITORS ONLY: pass this only when you have OMITTED `subreddit` and anchored the monitor with `q`. Passing it together with `subreddit` is rejected with a field-level 400 -- a monitor that names its subreddits should drop the unwanted name from that list instead. Up to 50, matched exactly like `subreddit` so 'r/Politics', '/r/politics' and 'politics' are one entry. This is the noise control for an all-of-Reddit keyword watch: it filters DELIVERY only, so it never changes what is polled, never frees quota, and never affects matching in any other subreddit. Independent of exclude_terms -- an item is dropped if either fires.",
+  ),
   q: z.string().max(200).optional().describe(
     "Free-text keyword or phrase to match. Matched against the fields in `search_in` (default title+body+url). Omit to match every new post in the watched subreddits.",
   ),
@@ -95,7 +140,7 @@ const MONITOR_FILTER_FIELDS = {
     "Posts containing any of these terms are suppressed even if they otherwise match. Use to cut noise (e.g. exclude 'giveaway' from a brand-mention monitor).",
   ),
   domain: z.array(z.string().min(1).max(200)).max(50).optional().describe(
-    "Outbound link domains to watch for (e.g. ['example.com']). Matches the post's link URL, any URL inside a self-post/comment body, and (validated but not yet populated by the live poller) a crosspost's original link. Exact-or-subdomain match only: 'example.com' matches 'blog.example.com' but never 'notexample.com'. Does NOT resolve shortened links (bit.ly, t.co).",
+    "Outbound link domains to watch for (e.g. ['example.com']). Matches the post's link URL, any URL inside a self-post/comment body, and a crosspost's original link, including one that only appeared in the original post's body. Exact-or-subdomain match only: 'example.com' matches 'blog.example.com' but never 'notexample.com'. Does NOT resolve shortened links (bit.ly, t.co).",
   ),
   include_any: z.array(z.string().min(1).max(200)).max(50).optional().describe(
     "At least ONE of these terms must appear (OR match) for the post to qualify, on top of any `q`."
@@ -104,13 +149,24 @@ const MONITOR_FILTER_FIELDS = {
     "EVERY one of these terms must appear (AND match) for the post to qualify, on top of any `q`."
   ),
   search_in: z.array(z.enum(["title", "body", "url", "permalink"])).min(1).optional().describe(
-    "Which fields keyword/term matching is scoped to. Default ['title', 'body', 'url']. Narrow to avoid false positives, e.g. a term that only appears in a URL slug matching a post that never mentions it in prose.",
+    "Which fields keyword/term matching is scoped to. Default ['title', 'body', 'url']. Narrow to avoid false positives, e.g. a term that only appears in a URL slug matching a post that never mentions it in prose. All four resolve on comments as well as posts: on a comment, 'title' matches the title of the THREAD the comment sits under (a comment has no title of its own), which also applies through the default scope and can deliver every comment under a busy matching thread. Scope to ['body'] if you only want comments that say the term themselves.",
   ),
   group: z.string().max(64).optional().describe(
     "Optional label to bundle multiple matches into one delivery instead of one webhook call per match. Omit for one delivery per matching item.",
   ),
+  kind: z.enum(["post", "comment", "both"]).optional().describe(
+    "What to watch in the named subreddits: 'post' (default when omitted), 'comment', or 'both'. Comment monitoring requires a Growth, Pro or Scale plan -- on a lower tier this returns `comment_monitoring_requires_higher_tier` (402). Comments run roughly 7x the volume of posts, so expect proportionally more deliveries and check reddit_monitor_health's delivery ceiling before enabling it on a busy subreddit.",
+  ),
   min_score: z.number().int().optional().describe("Only match posts with at least this many upvotes."),
-  nsfw: z.boolean().optional().describe("Include NSFW/over-18 posts. Default false (excluded)."),
+  nsfw: z.boolean().optional().describe("Set false to EXCLUDE NSFW/over-18 posts. Omitted or true both mean NSFW is allowed through -- there is no exclude-by-default; you must explicitly pass false to filter it out. POSTS ONLY: nsfw=false is REJECTED with a field-level 400 when kind is 'comment' or 'both', because Reddit flags NSFW on a post and never on an individual comment, so there is no field to filter a comment on. Run a kind='post' monitor to keep NSFW filtering, and cut unwanted comment text with exclude_terms."),
+};
+// Per-monitor webhook targeting (task #66, migration 009). NOT a filter_spec
+// field -- stays top-level in the request body, same as cadence_s/active, so
+// it is deliberately absent from MONITOR_FILTER_FIELDS/filterSpecFields.
+const MONITOR_WEBHOOK_IDS = {
+  webhook_ids: z.array(z.string().min(1)).max(20).optional().describe(
+    "Restrict delivery to specific webhook(s) instead of every active webhook on the account. Pass id(s) from reddit_monitor_webhook_create/reddit_monitor_webhook_list. Omit (or pass an empty array) for the default: deliver to every active webhook you've registered. Every id must be a webhook you own -- returns `webhook_not_found` (400) otherwise.",
+  ),
 };
 const MONITOR_ID = {
   id: z.string().min(1).describe("The monitor's id, from reddit_monitor_add's response or reddit_monitor_list."),
@@ -127,7 +183,7 @@ export const TOOLS = [
     name: "reddit_subreddit_posts",
     path: "/api/reddit/posts",
     description:
-      "List posts from a subreddit by sort order. Use this to read a community's feed: newest, hot/trending, top-of-week, rising, etc. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. Example: subreddit='programming' sort='top' t='week'.",
+      "List posts from a subreddit by sort order. Use this to read a community's feed: newest, hot/trending, top-of-week, rising, etc. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. When `after` comes back null the response carries `listing_status`: `complete` means no older posts and is only claimed when the whole run came back in under one page, `truncated` means Reddit's cap cut you off, and `unknown` means we cannot tell, so do NOT report `unknown` as the end of the data. A busy feed that Reddit simply stops serving reports `unknown`, not `complete`, so treat `unknown` as an incomplete answer and widen across sorts, timeframes or search rather than paging deeper. Example: subreddit='programming' sort='top' t='week'.",
     shape: {
       subreddit: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'programming', 'AskReddit'). Required.",
@@ -307,6 +363,70 @@ export const TOOLS = [
     },
   },
   {
+    name: "reddit_user_upvoted",
+    path: "/api/reddit/user/{name}/upvoted",
+    description:
+      "List the posts and comments a Reddit account has UPVOTED. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+    shape: {
+      name: z.string().min(1).describe(
+        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+      ),
+      ...LISTING_COOKIES,
+      ...SORT_USER,
+      ...TIME,
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
+    name: "reddit_user_saved",
+    path: "/api/reddit/user/{name}/saved",
+    description:
+      "List the posts and comments a Reddit account has SAVED. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+    shape: {
+      name: z.string().min(1).describe(
+        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+      ),
+      ...LISTING_COOKIES,
+      ...SORT_USER,
+      ...TIME,
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
+    name: "reddit_user_hidden",
+    path: "/api/reddit/user/{name}/hidden",
+    description:
+      "List the posts and comments a Reddit account has HIDDEN. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+    shape: {
+      name: z.string().min(1).describe(
+        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+      ),
+      ...LISTING_COOKIES,
+      ...SORT_USER,
+      ...TIME,
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
+    name: "reddit_user_gilded",
+    path: "/api/reddit/user/{name}/gilded",
+    description:
+      "List the posts and comments a Reddit account has received an award (gold) on. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+    shape: {
+      name: z.string().min(1).describe(
+        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+      ),
+      ...LISTING_COOKIES,
+      ...SORT_USER,
+      ...TIME,
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
     name: "reddit_subreddit_comments",
     path: "/api/reddit/sub/{name}/comments",
     description:
@@ -370,7 +490,7 @@ export const TOOLS = [
     name: "reddit_by_id",
     path: "/api/reddit/by_id/{fullnames}",
     description:
-      "Bulk-fetch posts by their t3_ fullnames in ONE call (up to 100), instead of a request per post. Pass a comma-separated list of fullnames you already have from a search or listing to hydrate them. Returns posts with title, author, score, comment count, and permalink — the same post shape as the listing endpoints. An unknown id is simply absent from the result. Example: fullnames='t3_abc123,t3_def456'.",
+      "Bulk-fetch posts by their t3_ fullnames in ONE call (up to 100), instead of a request per post. Pass a comma-separated list of fullnames you already have from a search or listing to hydrate them. Returns posts with title, author, score, comment count, and permalink, the same post shape as the listing endpoints. The result is NOT always one-to-one with your request, so read `meta`: `listing_status` is `complete` only when every fullname came back, `truncated` is the boolean to branch on, and `missing_fullnames` names exactly which ids did not. Example: fullnames='t3_abc123,t3_def456'.",
     shape: {
       fullnames: z.string().min(1).describe(
         "Comma-separated post fullnames, each a t3_ prefix followed by the base-36 id (e.g. 't3_abc123,t3_def456'). Up to 100. Required (path parameter).",
@@ -405,9 +525,9 @@ export const TOOLS = [
     path: "/api/reddit/monitor/add",
     method: "POST",
     write: true,
-    filterSpecFields: ["subreddit", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
+    filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
     description:
-      "Create a new Reddit monitor: watch one or more subreddits for new posts matching a filter, and get every match delivered to a webhook you've registered with reddit_monitor_webhook_create. Requires an active redditapis.com monitoring plan (monitoring has no free tier) and at least one monitor slot free (see reddit_monitor_list's `slots`). Forward-looking only from the moment of creation, or from `baseline_item_id` if given -- it never backfills posts that already existed. Returns the created monitor (with its `id`) on success, or `subscription_required` (402) if there is no active plan, `monitor_slots_exhausted` (402) if the plan's slot limit is reached, or `subreddit_not_found` (400) if a named subreddit does not exist.",
+      "Create a new Reddit monitor: watch one or more subreddits, or ALL of Reddit, for new posts (or comments, via `kind`) matching a filter, and get every match delivered to a webhook you've registered with reddit_monitor_webhook_create. Omit `subreddit` and set `q` for a sitewide keyword monitor covering every subreddit at once (posts only). By default matches go to EVERY active webhook on your account; pass `webhook_ids` to route this monitor's matches to only specific webhook(s). Every redditapis.com account holds a free entitlement of ONE all-of-Reddit post watch at a 60s cadence (up to 10,000 deliveries a day), so no subscription is needed to create that monitor. Naming a `subreddit`, matching comments, a faster cadence and any additional watch require a paid plan. Needs at least one monitor slot free (see reddit_monitor_list's `slots`). Forward-looking only from the moment of creation, or from `baseline_item_id` if given -- it never backfills posts that already existed. Returns the created monitor (with its `id`) on success, or `subscription_required` (402) if the account holds no recognised entitlement at all, `subreddit_scope_requires_paid_plan` (402) if a free account named a `subreddit`, `monitor_slots_exhausted` (402) if the plan's slot limit is reached, `sitewide_slots_exhausted` (402) if the plan's separate sitewide cap is reached, `distinct_subreddit_limit_reached` (402) if the account already watches as many DIFFERENT subreddits as the plan covers (the limit counts distinct subreddits across all your monitors, not monitors, and the same subreddit in two monitors counts once; see reddit_monitor_list's `slots.distinct_subreddits_total`), `sitewide_comment_monitoring_not_available` (501) if a sitewide monitor asks for comments, `subreddit_reserved` (400) if `subreddit` names 'all', `subreddit_not_found` (400) if a named subreddit does not exist, or `webhook_not_found` (400) if a `webhook_ids` entry is not yours.",
     shape: {
       ...MONITOR_SUBREDDIT,
       ...MONITOR_FILTER_FIELDS,
@@ -417,13 +537,14 @@ export const TOOLS = [
       baseline_item_id: z.string().optional().describe(
         "A Reddit post fullname (e.g. 't3_abc123') to use as the starting point instead of 'now' -- matching starts strictly after this item. Omit to start from the moment of creation.",
       ),
+      ...MONITOR_WEBHOOK_IDS,
     },
   },
   {
     name: "reddit_monitor_list",
     path: "/api/reddit/monitor/list",
     description:
-      "List every monitor on the caller's account, with each one's filter, active state, and cadence, plus a `slots` object ({used, total, tier}) showing how many monitor slots are purchased vs in use. Reading your own list never requires an active plan (a lapsed subscription shows an empty or paused list, not an error).",
+      "List every monitor on the caller's account, with each one's filter, active state, and cadence, plus a `slots` object ({used, total, tier}) showing how many monitor slots are purchased vs in use. Reading your own list never requires an active plan (a lapsed subscription shows an empty or paused list, not an error). `webhook_ids` NULL DOES NOT MEAN THE MONITOR HAS NO DESTINATION: null is the default and means matches go to EVERY active webhook on the account, which is the normal healthy state. A non-empty array narrows delivery to just those webhook ids. Never report a monitor as having no delivery target on the strength of a null here -- to see where a monitor's matches actually went, read reddit_monitor_deliveries, whose rows carry the resolved `webhook_id`.",
     shape: {},
   },
   {
@@ -431,15 +552,21 @@ export const TOOLS = [
     path: "/api/reddit/monitor/update",
     method: "POST",
     write: true,
-    filterSpecFields: ["subreddit", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
+    filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
     description:
-      "Update an existing monitor: pause/resume it (`active`), change its poll interval (`cadence_s`), or replace its filter entirely. IMPORTANT: if you pass ANY filter field (subreddit, q, domain, etc.), it REPLACES the whole filter, it does not merge with the existing one -- resupply every field you want kept, including `subreddit`. Omit all filter fields to change only `active`/`cadence_s` and leave the filter untouched. Returns 404 `monitor_not_found` if the id does not exist or is not yours.",
+      "Update an existing monitor: pause/resume it (`active`), change its poll interval (`cadence_s`), switch between posts and comments (`kind`), replace its filter entirely, or re-target which webhook(s) it delivers to (`webhook_ids`). IMPORTANT: if you pass ANY filter field (subreddit, q, kind, domain, etc.), it REPLACES the whole filter, it does not merge with the existing one -- resupply every field you want kept, including `subreddit` AND `kind` (omitting `kind` reverts that monitor to posts-only). Same rule for `webhook_ids`: passing it REPLACES the monitor's targeting outright (an empty array clears back to 'every active webhook'); omitting it entirely leaves the monitor's existing targeting untouched. Omit all filter/webhook_ids fields to change only `active`/`cadence_s`. Returns 404 `monitor_not_found` if the id does not exist or is not yours, or 400 `webhook_not_found` if a `webhook_ids` entry is not yours.",
     shape: {
       ...MONITOR_ID,
-      ...{ subreddit: MONITOR_SUBREDDIT.subreddit.optional().describe(MONITOR_SUBREDDIT.subreddit.description + " Required if you are replacing the filter at all.") },
+      ...{
+        subreddit: z.array(z.string().min(1)).min(1).max(50).optional().describe(
+          MONITOR_SUBREDDIT_DESC +
+            " On an update, omitting this while passing another filter field makes the monitor SITEWIDE (the filter is replaced wholesale, not merged), so resupply it if you meant to keep the monitor scoped.",
+        ),
+      },
       ...MONITOR_FILTER_FIELDS,
       active: z.boolean().optional().describe("Set false to pause the monitor (stops matching/delivering), true to resume it."),
       cadence_s: z.number().int().positive().optional().describe("New poll interval in seconds, same tier-floor clamping as reddit_monitor_add."),
+      ...MONITOR_WEBHOOK_IDS,
     },
   },
   {
@@ -449,14 +576,14 @@ export const TOOLS = [
     write: true,
     destructive: true,
     description:
-      "Permanently delete a monitor. This cannot be undone -- its filter and delivery history stop growing (past deliveries remain queryable via reddit_monitor_deliveries) and its slot is freed for a new monitor. Returns 404 `monitor_not_found` if the id does not exist or is not yours.",
+      "Delete a monitor. There is no undo endpoint -- it stops matching immediately, its slot is freed for a new monitor, and it disappears from reddit_monitor_list. Its past deliveries are NOT erased: they remain queryable via reddit_monitor_deliveries (both scoped by monitor_id and in the aggregate, no-id view) forever. Returns 404 `monitor_not_found` if the id does not exist or is not yours.",
     shape: { ...MONITOR_ID },
   },
   {
     name: "reddit_monitor_health",
     path: "/api/reddit/monitor/health",
     description:
-      "Per-monitor health: whether it's active, its poll cadence, when it last matched something, and delivery counts for the last 24h (`delivered_24h`, `failed_24h`, `suppressed_24h`) plus whether its delivery ceiling has been hit (`ceiling_reached`). Use this to check whether a monitor is silently starved before assuming it just has nothing to report.",
+      "Per-monitor health: whether it's active, its poll cadence, when it last matched something, and delivery counts for the last 24h (`delivered_24h`, `failed_24h`, `suppressed_24h`) plus whether its delivery ceiling has been hit (`ceiling_reached`) and what that ceiling is (`daily_delivery_ceiling`). `suppressed_24h` COUNTS TWO DIFFERENT THINGS AND `suppressed_breakdown` SPLITS THEM: `ceiling` (the monitor's daily cap was reached) and `stale` (the item was already older than the freshness window when we first saw it, so it was withheld rather than delivered as if it were new). A stale withhold is the usual reason a monitor's delivered count sits far below its matched count with no error anywhere, and it is the freshness gate working as intended -- nothing failed, the endpoint is fine, no limit on the plan rejected them, and retrying cannot recover the items. Do NOT read `suppressed_24h > 0` as 'this monitor is over its limit': `ceiling_reached` is the field that answers that, and a stale withhold deliberately does not set it. When `suppressed_breakdown.resolved` is false the counts do not add up to the total and `unresolved_reason` says why, so do not report a split off them; `ceiling_reached` stays conservative in that case rather than being cleared. THOSE COUNTS ONLY COVER POSTS WE FETCHED. A post we never fetched was never matched and leaves no row behind, so it is absent from all three counters rather than counted in any of them -- zeros there mean 'no matches recorded', never 'nothing was missed'. `coverage_24h` is the separate field that speaks to fetching, and its `status` is the one to read first: `complete` (every poll reached the point where the previous poll finished), `degraded` (at least one poll was truncated and posts were lost unrecoverably -- see `gaps[]`, `posts_in_window_at_least` and the estimated `posts_missed_estimate`), `partial` (nothing found, but not every kind of loss was checked -- see `unobserved_events`), or `unknown` (the check could not be run at all -- see `reason`). Do NOT report a monitor as healthy on `unknown` or `partial`, and do not treat a null count as zero: both mean the question went unanswered. `coverage_24h` is fed by the poll log and covers BOTH ways a poll loses posts unrecoverably (`listing_exhausted`, where Reddit stopped serving older posts, and `poll_overflow`, where the feed outran one poll's page budget); `observed_events` names what was actually checked, and a status of `complete` is only ever awarded when both were. WHAT `complete` DOES AND DOES NOT ESTABLISH: it means every poll that RAN got back to where the previous poll finished, AND that every feed was actually polled. The second half is `stream_liveness`, the field to read FIRST. `coverage_24h` is computed from the poll log, and a feed that is never polled writes nothing to that log, so it records no truncated poll and the coverage read comes back clean -- identical to a healthy monitor. `stream_liveness` reads a different source (the polling registry plus the per-feed last-successful-poll stamp), neither of which a poll that never ran can produce. Its `status` is `live` (every feed checked within three times its own interval), `degraded` (at least one is not: see `streams[]` for `never_polled`, `stalled` or `unregistered` per feed), or `unknown` (could not be established, including `streams_awaiting_first_poll` on a monitor created moments ago, which clears itself). `coverage_24h` can never read `complete` while this is anything but `live`. Do NOT report a monitor as healthy unless `stream_liveness.status` is `live`, and do not read a zero delivery count on a `never_polled` feed as a quiet subreddit: nothing was checked, so nothing could match. `gaps[]` IS A SAMPLE, NOT THE WHOLE LIST: it carries the most recent gaps only, `gaps_returned` says how many are in it, `gaps_truncated` says whether more exist, and `gap_events_24h` is always the true total. Count gaps from `gap_events_24h` and never from the length of `gaps[]`. FINALLY, `cadence` ANSWERS 'AM I BEING CHECKED AS OFTEN AS I PAY TO BE', which none of the fields above can. Cadence is a priced feature, so this is the field that says whether the monitor is being served the interval its plan sells. `promised_cadence_s` is the floor the account's CURRENT plan includes and `requested_cadence_s` is what this monitor is actually set to; `meets_entitlement` false means the monitor is set slower than the plan allows, which happens because a plan upgrade does NOT re-cadence monitors that already exist -- the fix is to set `cadence_s` on the monitor, and a deliberately slower cadence is also a legitimate choice. `last_checked_s_ago`, `freshness_ratio` and `within_margin` describe the slowest feed feeding this monitor, named in `slowest_stream`. READ `freshness_reading` BEFORE QUOTING ANY OF THEM: it is ONE INSTANTANEOUS SAMPLE, not an average and not a sustained verdict, so a single reading past the margin is not by itself proof of under-service. Every one of these is TRI-STATE and null NEVER means fine: a null `within_margin` or `meets_entitlement` means the question could not be answered, and `unknown_reason` says why. Do not report a monitor as on-cadence on a null.",
     shape: { ...MONITOR_ID },
   },
   {
@@ -467,7 +594,7 @@ export const TOOLS = [
     shape: {
       id: z.string().optional().describe("Narrow to one monitor's history. Omit to aggregate across every monitor you own."),
       status: z.enum(["pending", "delivered", "failed", "dead", "suppressed"]).optional().describe(
-        "Filter to one delivery status. 'dead' = retries exhausted, gave up. 'suppressed' = matched but deliberately not sent (e.g. delivery ceiling). Omit for all statuses.",
+        "Filter to one delivery status. 'dead' = retries exhausted, gave up. 'suppressed' = matched but deliberately not sent, and `payload.suppressed.reason` says which of the two reasons applied: 'delivery_ceiling' (the monitor's daily cap) or 'stale_item' (the item was already older than the freshness window when we first saw it, so it was withheld rather than delivered as if it were new). A 'stale_item' row is NOT a fault and was NOT rejected by any plan limit, and retrying cannot recover it; `payload.suppressed` carries the age and the threshold. Omit for all statuses.",
       ),
       limit: z.number().int().min(1).max(200).optional().describe("Max rows to return, 1 to 200. Default 50."),
       before: z.string().optional().describe("ISO 8601 timestamp cursor for pagination -- pass the `created_at` of the oldest row from the previous page to fetch older deliveries."),
@@ -483,7 +610,7 @@ export const TOOLS = [
     shape: {
       url: z.string().url().describe("HTTPS URL to deliver matches to. Must be publicly reachable HTTPS, no embedded credentials, no loopback/private/link-local address."),
       kind: z.enum(["webhook", "slack", "discord", "email"]).optional().describe(
-        "Payload shape to send. 'slack'/'discord' format as native incoming-webhook messages; 'webhook' (default) sends redditapis' generic signed JSON envelope; 'email' is not yet a real delivery transport.",
+        "Payload shape to send. PREFER OMITTING THIS: for a hooks.slack.com or discord.com/api/webhooks URL the kind is inferred from the host, and the response reports what it inferred in `kind_inferred_from`. 'slack'/'discord' format as native incoming-webhook messages; 'webhook' sends redditapis' generic signed JSON envelope and is the fallback only for a host we do not recognise; 'email' is not yet a real delivery transport. Passing 'webhook' for a Slack or Discord URL does NOT force the generic envelope (that combination can never deliver -- Slack answers 400 invalid_payload); the host wins and `kind_corrected_from` says so. Passing one SPECIFIC kind for a different platform's host (e.g. 'discord' with a hooks.slack.com URL) is refused with `webhook_kind_mismatch` (400) rather than stored.",
       ),
     },
   },
@@ -499,7 +626,7 @@ export const TOOLS = [
     method: "POST",
     write: true,
     description:
-      "Send a one-off test delivery to a registered webhook (rate-limited to 10/min) so you can confirm it's wired up correctly before waiting for a real match. Uses the webhook's `kind` to format the test payload the same way a real delivery would. Returns 404 `webhook_not_found` if the id does not exist or is not yours, or `webhook_url_rejected` if the URL fails re-validation (e.g. now resolves to a private address).",
+      "Send a one-off test delivery to a registered webhook (rate-limited to 10/min) so you can confirm it's wired up correctly before waiting for a real match. Uses the webhook's `kind` to format the test payload the same way a real delivery would. On failure the response carries `reason` and `status` plus TWO fields that say what to actually do: `hint`, our sentence naming the fix (most often that the target's `kind` does not match its host, which no test can succeed through), and `detail`, a bounded, sanitised copy of what the destination itself replied. Report `hint` to the user rather than the bare `reason` -- `http_error` with a 400 names no field, no value and no remedy. Returns 404 `webhook_not_found` if the id does not exist or is not yours, or `webhook_url_rejected` if the URL fails re-validation (e.g. now resolves to a private address).",
     shape: { ...WEBHOOK_ID },
   },
   {

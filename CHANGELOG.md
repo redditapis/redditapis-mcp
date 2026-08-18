@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.1
+- **Fix: the server no longer exits at startup when `REDDITAPIS_KEY` is missing.**
+  A registry connectivity scanner (Smithery, Glama, the official MCP registry,
+  Claude Connectors Directory) spins up the server with no real credential to
+  enumerate `tools/list`. Exiting before the transport connects made every
+  automated scan fail outright and read as a generic connectivity error rather
+  than a missing-key error, which is most of why this listing scored low on
+  every registry's capability-quality checks. Tools now register and
+  `tools/list` responds regardless of whether a key is present; an actual tool
+  call with no key still fails clearly, at the point of the call, with the
+  same style of message the existing 401 branch already used.
+- Adds `server.json` (official MCP server manifest: description, homepage,
+  repository, npm package identifier, and the `REDDITAPIS_KEY` config field
+  with a title and description) to the repo and to the published package, so
+  registry submissions have a durable, versioned source instead of a local,
+  never-committed file.
+
+## 0.3.0
+- 4 new READ tools for the caller's own private Reddit listings (upvoted,
+  saved, hidden, gilded), each requiring the caller's own Reddit session
+  cookie obtained via `POST /api/reddit/login`.
+- Pagination docs clarified across every listing tool: `listing_status` on the
+  final page distinguishes `complete` (nothing missing) from `truncated`/
+  `unknown` (Reddit stopped serving a busy listing early), so a client no
+  longer reads a null `after` cursor as proof of a complete result set.
+- This CHANGELOG entry is retroactive; 0.3.0 published without one, along with
+  drifting one npm publish ahead of what GitHub had committed. Both are
+  corrected as part of the 0.3.1 pass.
+
 ## 0.2.0
 - **10 new monitor/webhook management tools** (task #43), the first WRITES this
   catalog has ever carried. Unlike the reddit comment/vote/DM writes this MCP
