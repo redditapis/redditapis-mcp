@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.redditapis/redditapis-mcp",
+  "description": "Reddit API as MCP tools: search, subreddits, posts, comments, users, monitors, and webhooks.",
+  "title": "RedditAPIs",
+  "version": "0.3.1",
+  "websiteUrl": "https://www.redditapis.com",
+  "repository": {
+    "url": "https://github.com/redditapis/redditapis-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "redditapis-mcp",
+      "version": "0.3.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "REDDITAPIS_KEY",
+          "description": "Your redditapis.com API key. Get one at https://www.redditapis.com",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

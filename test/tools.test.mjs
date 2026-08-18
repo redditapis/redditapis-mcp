@@ -19,8 +19,14 @@ check("every tool has a unique name, path, description, and shape", () => {
   }
 });
 
-check("catalog covers the 22 read endpoints plus 10 monitor/webhook management tools", () => {
-  assert.equal(TOOLS.length, 32);
+// This count drifted silently once before: it still read 32 after the 0.3.0
+// publish added 4 private-listing read tools (upvoted/saved/hidden/gilded),
+// so this test was passing locally while checking a stale number against a
+// package.json version nobody had bumped for that release either. Whenever
+// this number changes again, bump it alongside a CHANGELOG entry in the same
+// commit, not after.
+check("catalog covers the 26 read endpoints plus 10 monitor/webhook management tools", () => {
+  assert.equal(TOOLS.length, 36);
 });
 
 check("every path param {x} has a matching shape key", () => {

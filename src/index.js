@@ -33,11 +33,19 @@ const REQUEST_TIMEOUT_MS = Number(process.env.REDDITAPIS_TIMEOUT_MS || 30000);
 // User-Agent and MCP server handshake understated its own version for months.
 const { version: VERSION } = createRequire(import.meta.url)("../package.json");
 
+// Lazy validation, not exit-on-boot: an MCP registry scanner (Smithery, Glama,
+// the official registry, Claude Connectors) connects the stdio transport with
+// no real credential to enumerate tools/list. Exiting here before the server
+// ever registers a tool makes that handshake fail outright and reads as a
+// generic connectivity error, not a missing-key error, on the scanner side --
+// confirmed live 2026-08-18 (Smithery: "Initialization failed... could not be
+// automatically scanned", HTTP 404). Warn and continue; a real tool CALL made
+// with no key still fails clearly, at the point of the call, same as it
+// already does for a bad key (see the 401 branch below).
 if (!API_KEY) {
   console.error(
-    "[reddit-mcp] Missing REDDITAPIS_KEY. Get a key at https://www.redditapis.com and set it in your MCP client config.",
+    "[reddit-mcp] Missing REDDITAPIS_KEY. Get a key at https://www.redditapis.com and set it in your MCP client config. Tools are registered but every call will fail until it is set.",
   );
-  process.exit(1);
 }
 
 // REST call. Resolves any {param} path placeholders from args, and for GET
@@ -46,6 +54,15 @@ if (!API_KEY) {
 // `filterSpecFields`). Forwards the API key as a Bearer token (redditapis.com
 // authenticates via `Authorization: Bearer <key>` only).
 async function callEndpoint(pathTemplate, args, method = "GET", tool = null) {
+  if (!API_KEY) {
+    return {
+      isError: true,
+      content: [{
+        type: "text",
+        text: "Missing REDDITAPIS_KEY (invalid or missing API key, get one at https://www.redditapis.com and set it in your MCP client config).",
+      }],
+    };
+  }
   const { path, rest } = buildPath(pathTemplate, args);
   const isWrite = method !== "GET";
   const q = isWrite ? "" : buildQuery(rest);

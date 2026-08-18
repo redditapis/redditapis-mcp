@@ -104,7 +104,8 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 A few conventions across the catalog:
 
 - Subreddit names go in **without** the `r/` prefix, and usernames **without** the `u/` prefix. `reddit_subreddit_posts` takes its community as `subreddit`; the `/sub/{name}/...` tools take it as `name`.
-- Listing and search tools return an `after` cursor. Pass it back as `after` to fetch the next page. `limit` accepts 1 to 100 (the API clamps out-of-range values).
+- Listing and search tools return an `after` cursor. Pass it back as `after` to fetch the next page, exactly as it was returned. `limit` accepts 1 to 100 (the API clamps out-of-range values).
+- When `after` comes back `null` there is no next page to ask for. That does not always mean you have every item: Reddit often stops serving a busy listing long before it runs out. The final response also carries `listing_status`, which reads `complete`, `truncated` or `unknown`. Only `complete` means nothing is missing. Treat the other two as a partial answer and widen across sorts, timeframes or search terms rather than paging deeper.
 - `t` (`hour`, `day`, `week`, `month`, `year`, `all`) sets the time window; on subreddit listings it applies to the `top` and `controversial` sorts, and on search it bounds the whole result set.
 
 ### Search and discovery
@@ -164,7 +165,7 @@ v1 monitors are **subreddit-scoped, posts-only** (no all-of-Reddit keyword watch
 | `reddit_monitor_list` | `GET /api/reddit/monitor/list` | List every monitor on your account, plus `slots` ({used, total, tier}). |
 | `reddit_monitor_update` | `POST /api/reddit/monitor/update` | Pause/resume (`active`), re-cadence, or replace a monitor's filter. Passing any filter field REPLACES the whole filter -- resupply everything you want kept. |
 | `reddit_monitor_remove` | `POST /api/reddit/monitor/remove` | Permanently delete a monitor. Cannot be undone. |
-| `reddit_monitor_health` | `GET /api/reddit/monitor/health` | Per-monitor delivered/failed/suppressed counts (last 24h) and whether the delivery ceiling has been hit. |
+| `reddit_monitor_health` | `GET /api/reddit/monitor/health` | Per-monitor delivered/failed/suppressed counts (last 24h), `suppressed_breakdown` splitting those suppressions into `ceiling` and `stale` reasons, and whether the delivery ceiling specifically has been hit. |
 | `reddit_monitor_deliveries` | `GET /api/reddit/monitor/deliveries` | The actual posts delivered (or attempted), newest first, with real content -- not just counts. Omit `id` to aggregate across every monitor you own. |
 | `reddit_monitor_webhook_create` | `POST /api/reddit/monitor/webhook/create` | Register a delivery target (`webhook`/`slack`/`discord`). Returns a signing secret shown ONCE. |
 | `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret. |
