@@ -26,7 +26,7 @@
   "scripts": {
     "start": "node src/index.js",
     "check": "node --check src/index.js && node --check src/tools.js && node --check src/feedback.js",
-    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs",
+    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs",
     "prepublishOnly": "node scripts/prepublish-tenant-check.mjs"
   },
   "dependencies": {

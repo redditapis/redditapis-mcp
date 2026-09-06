@@ -39,11 +39,25 @@ const REQUEST_TIMEOUT_MS = Number(process.env.REDDITAPIS_TIMEOUT_MS || 30000);
 // User-Agent and MCP server handshake understated its own version for months.
 const { version: VERSION } = createRequire(import.meta.url)("../package.json");
 
+// WARN AND CONTINUE, NEVER exit. A registry scanner spawns the server and calls
+// tools/list to enumerate what it offers, and tools/list is the DISCOVERY step
+// in the MCP spec: it comes before tool selection and before any invocation, so
+// it needs no credential. Exiting here answers that scan with nothing.
+//
+// This is not a hypothesis. Measured 2026-09-06 by speaking raw MCP stdio to
+// the published redditapis-mcp@0.5.2 with an empty env: initialize was never
+// answered and tools/list returned nothing, because this line fired first. A
+// scanner that behaves this way reports the server as uninspectable rather than
+// as having no tools, so the listing carries no catalog at all.
+//
+// NOT a security relaxation. This is a stdio server: whoever spawns it already
+// has local execution, so there is no unauthenticated party to expose anything
+// to. A real tool CALL with no key still fails clearly, at the point of the
+// call, exactly as it already does for a WRONG key (see the 401 branch below).
 if (!API_KEY) {
   console.error(
-    "[reddit-mcp] Missing REDDITAPIS_KEY. Get a key at https://www.redditapis.com and set it in your MCP client config.",
+    "[reddit-mcp] Missing REDDITAPIS_KEY. Get a key at https://www.redditapis.com and set it in your MCP client config. Tools are registered but every call will fail until it is set.",
   );
-  process.exit(1);
 }
 
 // The last tool call that failed, so a feedback draft can carry the endpoint,
@@ -90,6 +104,20 @@ export function hintFor(status, path) {
 }
 
 async function callEndpoint(pathTemplate, args, method = "GET", tool = null) {
+  // The credential check MOVED HERE from startup, so listing tools needs no key
+  // and calling one still cannot silently proceed without it. Without this the
+  // relaxation above would send an Authorization header reading "Bearer
+  // undefined" and the caller would read a 401 about an INVALID key when the
+  // real answer is that no key was ever set.
+  if (!API_KEY) {
+    return {
+      isError: true,
+      content: [{
+        type: "text",
+        text: "Missing REDDITAPIS_KEY (no API key is set; get one at https://www.redditapis.com and set it in your MCP client config).",
+      }],
+    };
+  }
   const { path, rest: pathRest } = buildPath(pathTemplate, args);
   // A tool that declares `sessionHeaders` has its Reddit session args lifted
   // out of the query and onto headers. For every other tool this is the
