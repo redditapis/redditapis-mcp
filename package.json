@@ -1,8 +1,8 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.3.2",
+  "version": "0.5.2",
   "mcpName": "io.github.redditapis/redditapis-mcp",
-  "description": "Official MCP server for redditapis.com, the Reddit API (subreddit listings, post + comment + community + user + media search, comment trees, top posts, user profiles) plus monitor/webhook management (create/list/update/remove a monitor, register/test/delete a webhook, read delivery history) as native tools for Claude, Cursor, and any MCP client.",
+  "description": "Official MCP server for redditapis.com. Search Reddit posts, comments, communities, users and media; read subreddits, comment trees, top posts and profiles; create and manage monitors and webhooks. Native tools for Claude, Cursor and any MCP client.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/redditapis/redditapis-mcp.git"
@@ -18,19 +18,16 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "smithery.yaml",
-    "server.json"
+    "smithery.yaml"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "start": "node src/index.js",
-    "check": "node --check src/index.js && node --check src/tools.js",
-    "test": "node test/tools.test.mjs",
-    "prepublishOnly": "node scripts/prepublish-tenant-check.mjs",
-    "bundle": "npx -y @anthropic-ai/mcpb@2.1.2 pack .",
-    "check:mcpb": "npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json"
+    "check": "node --check src/index.js && node --check src/tools.js && node --check src/feedback.js",
+    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs",
+    "prepublishOnly": "node scripts/prepublish-tenant-check.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

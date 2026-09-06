@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/redditapis-mcp)](https://www.npmjs.com/package/redditapis-mcp)
 [![license](https://img.shields.io/npm/l/redditapis-mcp)](./LICENSE)
 
-Official **Model Context Protocol** server for [redditapis.com](https://www.redditapis.com), the Reddit API as native tools for Claude, Cursor, Windsurf, and any MCP client. It turns Reddit reads (search, subreddit listings, comment trees, user profiles, community metadata) into typed tools your agent can call directly, plus (since 0.2.0) managing your own redditapis.com monitors and webhooks.
+Official **Model Context Protocol** server for [redditapis.com](https://www.redditapis.com), the Reddit API as native tools for Claude, Cursor, Windsurf, and any MCP client. It turns Reddit reads (search, subreddit listings, comment trees, user profiles, community metadata) into typed tools your agent can call directly, plus (since 0.2.0) managing your own redditapis.com monitors and webhooks, and (since 0.4.0) sending the team product feedback the agent drafted and you reviewed.
 
 Ask your agent to search Reddit for a topic, read a community's top posts of the week, pull a user's comment history, surface the redditors talking about a product, or read a subreddit's rules before you engage, and it calls the API for you. It can also set up a monitor that watches a subreddit for new posts matching a filter and delivers them to a webhook, then check what it's actually delivered. Every tool maps to a REST endpoint at `https://api.redditapis.com`; the server holds no state and forwards your API key on each call.
 
@@ -94,12 +94,13 @@ claude mcp add reddit --env REDDITAPIS_KEY=YOUR_API_KEY -- npx -y redditapis-mcp
 | `REDDITAPIS_KEY` | Yes | (none) | API key from [redditapis.com](https://www.redditapis.com). `REDDIT_APIS_KEY` is accepted as an alias. |
 | `REDDITAPIS_BASE_URL` | No | `https://api.redditapis.com` | Override the API host. |
 | `REDDITAPIS_TIMEOUT_MS` | No | `30000` | Per-request timeout in milliseconds. |
+| `REDDITAPIS_FEEDBACK_DIR` | No | `~/.redditapis` | Where `reddit_feedback_send` keeps its local draft queue (`feedback-queue.json`). |
 
 Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDITAPIS_KEY>` on every request.
 
 ## Tools
 
-32 tools: 22 reads plus 10 monitor/webhook management tools. Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below).
+34 tools: 22 reads, 10 monitor/webhook management tools, and 2 feedback tools. Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -124,6 +125,9 @@ A few conventions across the catalog:
 | Tool | Endpoint | What it does |
 |---|---|---|
 | `reddit_subreddit_posts` | `GET /api/reddit/posts` | List a subreddit's posts by `sort` (`new`, `hot`, `top`, `rising`, `controversial`, `best`). |
+| `reddit_feedback_list` | `GET /feedback` | List the reports this account has sent, newest first, with their status. The way back to a report whose id was not kept. Free. |
+| `reddit_verify_comments` | `POST /api/reddit/comments/verify` | Check whether up to 100 specific comments still exist and are publicly visible. A read despite the POST; tells 'deleted by author' from 'removed by a mod' from 'still there'. |
+| `reddit_home_feed` | `GET /api/reddit/feed` | Read YOUR OWN Reddit home feed. Needs your `reddit_session` and `loid` from `POST /api/reddit/login` (a REST call, not an MCP tool); they travel as headers, never in the URL. |
 | `reddit_subreddit_top` | `GET /api/reddit/sub/{name}/top` | Top posts of a subreddit for a time window (`t`). |
 | `reddit_subreddit_comments` | `GET /api/reddit/sub/{name}/comments` | Stream the newest comments across an entire subreddit (not one post's thread). |
 | `reddit_subreddit_about` | `GET /api/reddit/sub/{name}/about` | A subreddit's public metadata: title, description, subscriber and active-user counts, type, NSFW flag. |
@@ -135,6 +139,7 @@ A few conventions across the catalog:
 
 | Tool | Endpoint | What it does |
 |---|---|---|
+| `reddit_post_visibility` | `GET /api/reddit/post/{id}/visibility` | Is a post still publicly visible, or did it quietly stop being so? Fetches the post and one page of its author's listing and compares. Returns `live`, `not_visible` or `undecidable` with a reason, and never claims to know WHY. Two upstream calls, $0.004. |
 | `reddit_post` | `GET /api/reddit/post/{id}` | A single post by its base-36 `id` (no `t3_` prefix): title, author, score, text, permalink, subreddit, url. |
 | `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`. |
 | `reddit_by_id` | `GET /api/reddit/by_id/{fullnames}` | Bulk-hydrate up to 100 posts in one call from a comma-separated list of `t3_` fullnames. |
@@ -171,6 +176,16 @@ v1 monitors are **subreddit-scoped, posts-only** (no all-of-Reddit keyword watch
 | `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret. |
 | `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
 | `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
+
+### Feedback: tell the team what broke, after you review the draft
+
+Modelled on Claude Code's own feedback tool. When a call fails in a way that is not your key, credits or a rate limit, when you ask for something no tool covers, or when a result is plainly wrong, the model can **draft** a report into a local queue (`~/.redditapis/feedback-queue.json`, at most 10 drafts, override the directory with `REDDITAPIS_FEEDBACK_DIR`). Nothing is sent until you ask to review the queue and name the drafts to send. Each report carries the last failing call's endpoint, status and request id, your client name and this package's version, so the team can act on it without a follow-up. Use `reddit_feedback_get` with the returned server id to see whether it was triaged, shipped or declined. Both tools are free.
+
+| Tool | Endpoint | What it does |
+|------|----------|--------------|
+| `reddit_feedback_send` | `POST /feedback` | `action: "draft"` (default) queues a report locally and sends nothing; `"list"` shows the queue; `"send"` posts only the drafts you name; `"discard"` drops them. |
+| `reddit_account_me` | `GET /account/me` | How much credit this key has left, before spending any. Free, never metered. |
+| `reddit_feedback_get` | `GET /feedback/{id}` | Read a sent report's status (`new`, `triaged`, `shipped`, `declined`) and the team's response. |
 
 ## Usage examples
 

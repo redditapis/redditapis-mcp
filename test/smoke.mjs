@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { TOOLS } from "../src/tools.js";
 
 const KEY = process.env.REDDITAPIS_KEY || process.env.REDDIT_APIS_KEY;
 if (!KEY) {
@@ -23,7 +24,9 @@ const client = new Client({ name: "reddit-mcp-smoke", version: "1.0.0" }, { capa
 try {
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 32, `expected 32 tools, got ${tools.length}`);
+  // Derived from the catalog, never typed: this line read 32 while the
+  // catalog carried 36, and only ever ran with a live key, so nobody saw it.
+  assert.equal(tools.length, TOOLS.length, `expected ${TOOLS.length} tools, got ${tools.length}`);
   console.log(`PASS  connected, ${tools.length} tools listed`);
 
   // Protocol-level only (no live call, no side effect, no plan required): the

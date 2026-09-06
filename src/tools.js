@@ -21,6 +21,20 @@
 // a query string (see buildBody below). `filterSpecFields` on a tool declares
 // which of its args nest under `filter_spec` in that body; everything else in
 // `shape` stays top-level (id, cadence_s, active, url, kind, ...).
+//
+// LOCAL TOOLS (2026-09-04): a tool carrying `local: "<handler>"` is dispatched
+// by index.js to a handler in this package instead of straight to the API.
+// Args flagged in `localArgs` are consumed locally and never sent. Today the
+// only such tool is reddit_feedback_send, whose draft queue lives on disk in
+// src/feedback.js and whose POST to /feedback happens only on the user's say.
+// index.js refuses to boot if a catalog entry names a handler it lacks, so a
+// `local` tag can never turn into a silent passthrough with the local args
+// attached.
+//
+// PUBLIC MOUNTS: every tool path is under /api/reddit/ EXCEPT the feedback
+// pair, which the API serves un-prefixed (api.redditapis.com/feedback) because
+// it is mounted outside the metered /api surface, like /account. The catalog
+// test pins the allowed prefixes so a typo cannot invent a third one.
 import { z } from "zod";
 
 // Shared Zod input-schema fragments.
@@ -98,6 +112,28 @@ const LISTING_COOKIES = {
   ),
 };
 
+// The SESSION-HEADER form of the same thing, for tools that declare
+// `sessionHeaders: true`. Identical fields, different transport: buildHeaders
+// lifts these onto x-reddit-* headers instead of the query string, because a
+// session cookie in a URL ends up in every log along the path. LISTING_COOKIES
+// above stays as it is; the four tools using it ship with the query form and
+// changing what they put on the wire would be a behaviour change nobody asked
+// for. The REST API accepts both.
+const SESSION_HEADERS_REQUIRED = {
+  reddit_session: z.string().min(1).describe(
+    "Your Reddit `reddit_session` cookie, from POST /api/reddit/login on the REST API (not an MCP tool). Sent as a header, never in the URL. Required.",
+  ),
+  loid: z.string().min(1).describe(
+    "Your Reddit `loid` cookie, from the same login response. Required, and must be sent together with reddit_session.",
+  ),
+  token_v2: z.string().optional().describe(
+    "Your Reddit `token_v2` cookie, from the same login response. Optional.",
+  ),
+  proxy: z.string().optional().describe(
+    "Optional proxy this read egresses through, so the request reaches Reddit from the IP this account normally acts from. http://user:pass@host:port or host:port. Pinned across retries.",
+  ),
+};
+
 // ── monitoring filter_spec fragments, shared by monitor_add and monitor_update ──
 // v1 is SUBREDDIT-SCOPED ONLY (all-Reddit keyword monitoring is not available),
 // matching apps/api/src/lib/monitor-filter.js's own validation exactly, so a
@@ -158,6 +194,9 @@ const MONITOR_FILTER_FIELDS = {
     "What to watch in the named subreddits: 'post' (default when omitted), 'comment', or 'both'. Comment monitoring requires a Growth, Pro or Scale plan -- on a lower tier this returns `comment_monitoring_requires_higher_tier` (402). Comments run roughly 7x the volume of posts, so expect proportionally more deliveries and check reddit_monitor_health's delivery ceiling before enabling it on a busy subreddit.",
   ),
   min_score: z.number().int().optional().describe("Only match posts with at least this many upvotes."),
+  min_relevance: z.number().int().min(0).max(100).optional().describe(
+    "AI relevance floor, 0-100. 0 (the default) is off. Above 0, every match is scored by a language model against this monitor's own keywords and anything below the floor is NOT delivered -- it is recorded in your delivery history with status 'suppressed' and reason 'low_relevance', carrying its score and a one-line explanation, so you can always read what was filtered and why. Nothing is silently discarded. Rough calibration: 80-100 squarely on topic, 50-79 related but peripheral, 20-49 tangential, 0-19 the keyword is used in an unrelated sense. The comparison is inclusive, so a score equal to the floor is delivered. If scoring is unavailable the match is delivered UNSCORED rather than withheld. Requires a Growth, Pro or Scale plan -- on a lower tier this returns `ai_relevance_requires_higher_tier` (402). REJECTED with a field-level 400 on a monitor that has no q, include_any or include_all, because there would be no topic to score an item against and the floor could only ever admit everything.",
+  ),
   nsfw: z.boolean().optional().describe("Set false to EXCLUDE NSFW/over-18 posts. Omitted or true both mean NSFW is allowed through -- there is no exclude-by-default; you must explicitly pass false to filter it out. POSTS ONLY: nsfw=false is REJECTED with a field-level 400 when kind is 'comment' or 'both', because Reddit flags NSFW on a post and never on an individual comment, so there is no field to filter a comment on. Run a kind='post' monitor to keep NSFW filtering, and cut unwanted comment text with exclude_terms."),
 };
 // Per-monitor webhook targeting (task #66, migration 009). NOT a filter_spec
@@ -195,6 +234,34 @@ export const TOOLS = [
     },
   },
   {
+    name: "reddit_verify_comments",
+    path: "/api/reddit/comments/verify",
+    method: "POST",
+    description:
+      "Check whether specific Reddit comments still EXIST and are publicly visible, in one batch of up to 100 ids. A READ despite being a POST (ids travel in the body because a hundred of them do not fit in a URL); it costs the same as any other read and changes nothing on Reddit. Use it to tell 'deleted by the author' from 'removed by a moderator' from 'still there', which a normal comment fetch cannot distinguish, and to re-check a list of comments you posted or collected earlier. Accepts bare ids and t1_-prefixed fullnames interchangeably. Returns one row per id, in the order you sent them, each with a status. Example: ids=['n5abcde','t1_n5fghij'].",
+    shape: {
+      ids: z.array(z.string().min(1)).min(1).max(100).describe(
+        "Comment ids to check, 1 to 100 per call. Bare id ('n5abcde') or fullname ('t1_n5abcde'), mixed freely. Reddit's own batch lookup caps at 100; split larger lists across calls. Required.",
+      ),
+    },
+  },
+  {
+    name: "reddit_home_feed",
+    path: "/api/reddit/feed",
+    sessionHeaders: true,
+    description:
+      "Read YOUR OWN Reddit home feed, the front page your subscriptions produce. Every other read tool here is served from a shared pool of accounts, so it cannot answer 'what is on my feed' -- this one sends your session instead. REQUIRES your own Reddit session: call POST /api/reddit/login on the REST API first (not an MCP tool) and pass the `reddit_session` and `loid` cookies it returns. Without them this returns 400, deliberately, because Reddit's logged-out front page is a different feed belonging to nobody rather than a thinner version of yours. Same post shape and `after` cursor as reddit_subreddit_posts. For a PUBLIC community feed use reddit_subreddit_posts instead. Example: sort='best' limit=25.",
+    shape: {
+      ...SESSION_HEADERS_REQUIRED,
+      sort: z.enum(["best", "hot", "new", "top", "rising", "controversial"]).optional().describe(
+        "Feed sort. 'best' (default) is Reddit's own logged-in home sort. 'top'/'controversial' also take `t`.",
+      ),
+      ...TIME,
+      ...AFTER,
+      ...LIMIT,
+    },
+  },
+  {
     name: "reddit_search",
     path: "/api/reddit/search",
     description:
@@ -221,6 +288,21 @@ export const TOOLS = [
       spoiler: z.boolean().optional().describe("Filter by the spoiler flag."),
       contest_mode: z.boolean().optional().describe("Filter by the contest_mode flag."),
       sort_type: z.enum(["score", "num_comments", "created"]).optional().describe("Re-sort the filtered page (descending) by this field."),
+    },
+  },
+  {
+    name: "reddit_post_visibility",
+    path: "/api/reddit/post/:id/visibility",
+    description:
+      "Is a post still publicly visible, or did it quietly stop being so? A removed Reddit post still " +
+      "returns when you fetch it by id, so asking the post does not answer this. This fetches the post " +
+      "and then one page of its author's submitted listing and compares them. Returns a verdict of live, " +
+      "not_visible or undecidable, a plain-language reason, and a confident flag. It deliberately never " +
+      "says WHY a post is not visible: a moderator removal, an admin removal, a spam filter and an author " +
+      "who has hidden their history are indistinguishable from outside. undecidable is a real answer, not " +
+      "a failure. Two upstream calls, billed as one $0.004 dual read.",
+    shape: {
+      id: z.string().min(1).describe("Reddit post id, base36, with or without the t3_ prefix"),
     },
   },
   {
@@ -525,7 +607,7 @@ export const TOOLS = [
     path: "/api/reddit/monitor/add",
     method: "POST",
     write: true,
-    filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
+    filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "min_relevance", "nsfw"],
     description:
       "Create a new Reddit monitor: watch one or more subreddits, or ALL of Reddit, for new posts (or comments, via `kind`) matching a filter, and get every match delivered to a webhook you've registered with reddit_monitor_webhook_create. Omit `subreddit` and set `q` for a sitewide keyword monitor covering every subreddit at once (posts only). By default matches go to EVERY active webhook on your account; pass `webhook_ids` to route this monitor's matches to only specific webhook(s). Every redditapis.com account holds a free entitlement of ONE all-of-Reddit post watch at a 60s cadence (up to 10,000 deliveries a day), so no subscription is needed to create that monitor. Naming a `subreddit`, matching comments, a faster cadence and any additional watch require a paid plan. Needs at least one monitor slot free (see reddit_monitor_list's `slots`). Forward-looking only from the moment of creation, or from `baseline_item_id` if given -- it never backfills posts that already existed. Returns the created monitor (with its `id`) on success, or `subscription_required` (402) if the account holds no recognised entitlement at all, `subreddit_scope_requires_paid_plan` (402) if a free account named a `subreddit`, `monitor_slots_exhausted` (402) if the plan's slot limit is reached, `sitewide_slots_exhausted` (402) if the plan's separate sitewide cap is reached, `distinct_subreddit_limit_reached` (402) if the account already watches as many DIFFERENT subreddits as the plan covers (the limit counts distinct subreddits across all your monitors, not monitors, and the same subreddit in two monitors counts once; see reddit_monitor_list's `slots.distinct_subreddits_total`), `sitewide_comment_monitoring_not_available` (501) if a sitewide monitor asks for comments, `subreddit_reserved` (400) if `subreddit` names 'all', `subreddit_not_found` (400) if a named subreddit does not exist, or `webhook_not_found` (400) if a `webhook_ids` entry is not yours.",
     shape: {
@@ -552,7 +634,7 @@ export const TOOLS = [
     path: "/api/reddit/monitor/update",
     method: "POST",
     write: true,
-    filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "nsfw"],
+    filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "min_relevance", "nsfw"],
     description:
       "Update an existing monitor: pause/resume it (`active`), change its poll interval (`cadence_s`), switch between posts and comments (`kind`), replace its filter entirely, or re-target which webhook(s) it delivers to (`webhook_ids`). IMPORTANT: if you pass ANY filter field (subreddit, q, kind, domain, etc.), it REPLACES the whole filter, it does not merge with the existing one -- resupply every field you want kept, including `subreddit` AND `kind` (omitting `kind` reverts that monitor to posts-only). Same rule for `webhook_ids`: passing it REPLACES the monitor's targeting outright (an empty array clears back to 'every active webhook'); omitting it entirely leaves the monitor's existing targeting untouched. Omit all filter/webhook_ids fields to change only `active`/`cadence_s`. Returns 404 `monitor_not_found` if the id does not exist or is not yours, or 400 `webhook_not_found` if a `webhook_ids` entry is not yours.",
     shape: {
@@ -590,7 +672,7 @@ export const TOOLS = [
     name: "reddit_monitor_deliveries",
     path: "/api/reddit/monitor/deliveries",
     description:
-      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). Answers 'what did I actually get sent', not just 'how many' (see reddit_monitor_health for counts). Omit `id` to aggregate history across every monitor you own.",
+      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). Answers 'what did I actually get sent', not just 'how many' (see reddit_monitor_health for counts). Every delivered item also carries `payload.items[].enrichment`: a `relevance.score` (0-1, how much of THIS monitor's own keyword criteria the item matched -- not a model's confidence), a `sentiment` (`polarity` -1 to 1 plus a positive/negative/mixed/neutral `label`), and an `intent.tag` (question, recommendation_request, complaint, promotion, praise, or discussion). All three are deterministic keyword/lexicon/rule heuristics computed at no extra cost -- each carries its own `method` field and NONE of them is a machine-learning or LLM call, so do not describe a score here as ML-derived. Omit `id` to aggregate history across every monitor you own.",
     shape: {
       id: z.string().optional().describe("Narrow to one monitor's history. Omit to aggregate across every monitor you own."),
       status: z.enum(["pending", "delivered", "failed", "dead", "suppressed"]).optional().describe(
@@ -639,9 +721,145 @@ export const TOOLS = [
       "Permanently delete a webhook. Any monitor still pointing at it will fail to deliver until repointed at a different webhook -- this does NOT cascade-delete or pause the monitors using it. Cannot be undone. Returns 404 `webhook_not_found` if the id does not exist or is not yours.",
     shape: { ...WEBHOOK_ID },
   },
+
+  // ── feedback: report a defect or a gap to the redditapis.com team, with the
+  //    user's review between the draft and the send ─────────────────────────
+  {
+    name: "reddit_feedback_send",
+    path: "/feedback",
+    method: "POST",
+    write: true,
+    local: "feedback",
+    localArgs: ["action", "ids"],
+    description:
+      "Report a product problem or gap in redditapis.com to its team from inside this session, the way Claude Code's own feedback tool works: a report is DRAFTED to a local queue first (action \"draft\", the default) and SENT only after the user reviews it. Drafting sends nothing, needs no confirmation, and should not be announced mid-task. WHEN TO DRAFT, only at high-signal moments: a redditapis tool call failed with an error that was not a missing key (401), credits (402) or a rate limit (429), and the user had to work around it; the user asked for something no redditapis tool covers; a documented field came back empty or wrong; the user was clearly frustrated with a result. One draft per distinct issue, never twice for the same one. FORMAT for details, four labelled bullets in this order: 'What happened:' observed vs expected, exact error text if short. 'What the user said:' quoted verbatim, or 'user did not comment'. 'Repro:' the minimal call that reproduces it. 'Evidence:' tool name, endpoint, HTTP status, request id (the last failing call is attached automatically where you leave a gap). Facts only: no guessing, no API keys or secrets, no personal names. REVIEW: when the user asks to see or send feedback, call action \"list\", then action \"send\" with ONLY the draft ids the user named in their own message, or action \"discard\". Sending posts each draft to POST /feedback (free, not metered) and returns a server id that reddit_feedback_get can check later.",
+    shape: {
+      action: z.enum(["draft", "list", "send", "discard"]).optional().describe(
+        "What to do. \"draft\" (default) queues a new report locally and sends nothing. \"list\" shows the pending drafts with their ids. \"send\" posts the drafts named in ids to redditapis.com; use it only for ids the user named. \"discard\" drops the drafts named in ids.",
+      ),
+      type: z.enum(["bug", "idea", "missing_capability"]).optional().describe(
+        "Required for a draft. \"bug\": a tool or endpoint misbehaved. \"idea\": a change that would have made the task easier. \"missing_capability\": the user needed something no tool provides.",
+      ),
+      title: z.string().max(120).optional().describe(
+        "Required for a draft. One specific line, at most 120 characters, naming the tool or endpoint and the defect, e.g. \"reddit_post_comments returns 502 when the post is deleted\".",
+      ),
+      details: z.string().max(8000).optional().describe(
+        "Required for a draft. At most 8000 characters, four labelled bullets in order: What happened, What the user said (verbatim), Repro, Evidence.",
+      ),
+      area: z.string().max(80).optional().describe(
+        "Optional. The endpoint or feature the report is about, e.g. \"posts/comments\" or \"monitoring\". At most 80 characters.",
+      ),
+      evidence: z.record(z.string(), z.unknown()).optional().describe(
+        "Optional identifiers only, never payloads: {tool, endpoint, status, request_id}. Whatever you leave out is filled from the last failing call in this session; mcp_version and client are always attached.",
+      ),
+      ids: z.array(z.string()).optional().describe(
+        "For action \"send\" or \"discard\": the draft ids to act on, exactly as shown by action \"list\" and named by the user.",
+      ),
+    },
+  },
+  {
+    name: "reddit_feedback_list",
+    path: "/feedback",
+    description:
+      "List the feedback reports this account has sent, newest first, with each one's current status. Use it to RECOVER A LOST ID: the server id is returned only once, when a report is sent, so this is the way back to a report whose id was not kept. Also the way to answer \"did that report actually land\" and \"has the team looked at it yet\". Optionally filter by status or type, and page with the cursor from a previous response. Free per call, never metered. Returns {feedback: [...], count, limit, next_cursor}; page by passing next_cursor back as cursor until it is null; an account that has filed nothing gets an empty list and a 200, not an error. Note this lists SENT reports on the server, which is different from reddit_feedback_send action=\"list\", which shows unsent local drafts on this machine.",
+    shape: {
+      status: z.enum(["new", "triaged", "shipped", "declined"]).optional().describe(
+        "Optional. Show only reports in this state. Omit for all of them.",
+      ),
+      type: z.enum(["bug", "idea", "missing_capability"]).optional().describe(
+        "Optional. Show only reports of this kind. Omit for all of them.",
+      ),
+      cursor: z.string().optional().describe(
+        "Optional. The next_cursor from a previous response, to fetch the page after it. Keyset paging on (created_at, id), so a report filed while you page cannot make a row repeat or be skipped. A cursor this endpoint did not issue is a 400, never an empty page.",
+      ),
+      limit: z.number().int().min(1).max(100).optional().describe(
+        "Optional. How many to return, 1 to 100 (default 25). Newest first.",
+      ),
+    },
+  },
+  {
+    // CHECK BEFORE YOU SPEND. An agent planning a costed run has no way to ask
+    // how much credit is left, so it either runs blind and hits a 402 partway
+    // through, or it asks the user to go and look. Both are avoidable: the
+    // endpoint already exists and is already free.
+    //
+    // GET /account/me is mounted OUTSIDE /api (server.js), ahead of bearerAuth,
+    // under a comment reading "Free account endpoints live in apps/backend". So
+    // this tool bills nothing and is safe to call before every plan.
+    //
+    // Path verified against the live origin rather than read off the route
+    // tree: /account/me returns 401 unauthenticated while /account/<nonsense>
+    // returns 404, which is how we know the route exists. (/api/<anything>
+    // returns 401 for everything, so that path could not have told us.)
+    name: "reddit_account_me",
+    path: "/account/me",
+    description:
+      "How much credit this API key has left, before spending any. Returns the account's remaining credit balance and usage totals. FREE: this call is not metered and never costs a credit, so call it whenever you are about to run something expensive rather than guessing. Use it to decide whether a planned batch fits in the remaining balance, and to tell the user how much is left if a call returns 402. A 402 from any other tool means the balance is exhausted; its response carries a top-up URL to give the user.",
+    shape: {},
+  },
+  {
+    name: "reddit_feedback_get",
+    path: "/feedback/{id}",
+    description:
+      "Check the status of a feedback report this account sent earlier (the server id returned by reddit_feedback_send action \"send\"): status new, triaged, shipped or declined, the team's response text if any, and updated_at, which moves only when the team acts on it. Free per call. 404 if the id is not on this account.",
+    shape: {
+      id: z.string().min(1).describe(
+        "The server id of a sent report, as returned by reddit_feedback_send action \"send\" (a UUID). Not a local draft id.",
+      ),
+    },
+  },
 ];
 
 // Turn tool args into a URL query string. Skips undefined/null/empty values.
+// ── the session HEADER transport ────────────────────────────────────────────
+//
+// A GET tool's args normally become the query string. A Reddit session cookie
+// must not: it grants full control of that account and a query string is
+// written into every access log, proxy log and browser history along the path.
+// So a tool that declares `sessionHeaders: true` has these arg names lifted OUT
+// of the query and sent as headers instead.
+//
+// The four legacy private listings (upvoted/saved/hidden/gilded) deliberately
+// do NOT declare it: they have always sent cookies as query fields, the REST
+// API still honours that form, and changing what a shipped tool puts on the
+// wire is a behaviour change nobody asked for. New tools use headers.
+export const SESSION_ARG_TO_HEADER = {
+  reddit_session: "x-reddit-session",
+  loid: "x-reddit-loid",
+  token_v2: "x-reddit-token-v2",
+  csrf_token: "x-reddit-csrf-token",
+  edgebucket: "x-reddit-edgebucket",
+  csv: "x-reddit-csv",
+  session_tracker: "x-reddit-session-tracker",
+  pc: "x-reddit-pc",
+  proxy: "x-reddit-proxy",
+};
+
+/**
+ * Split a tool's args into headers and everything else.
+ *
+ * Returns { headers, rest }. When the tool does not declare `sessionHeaders`
+ * this is the identity: `headers` is empty and `rest` is the args unchanged, so
+ * every existing tool builds exactly the request it built before.
+ */
+export function buildHeaders(tool, args) {
+  const headers = {};
+  const rest = {};
+  const lift = tool && tool.sessionHeaders;
+  for (const [k, v] of Object.entries(args || {})) {
+    const header = lift ? SESSION_ARG_TO_HEADER[k] : null;
+    if (header && v !== undefined && v !== null && String(v).length > 0) {
+      headers[header] = String(v);
+    } else if (!header) {
+      rest[k] = v;
+    }
+    // A declared session field that is empty is dropped rather than sent as an
+    // empty header: an empty x-reddit-session would read as "authenticate me"
+    // and earn a 400 instead of the anonymous read the caller meant.
+  }
+  return { headers, rest };
+}
+
 export function buildQuery(args) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(args || {})) {

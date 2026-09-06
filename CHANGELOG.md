@@ -1,53 +1,55 @@
 # Changelog
 
-## 0.3.2
-- **Security: 10 Dependabot alerts closed (3 high, 6 moderate, 1 low)**, all in
-  transitive dependencies pulled in by `@modelcontextprotocol/sdk` (never a
-  direct dependency of this package): `hono` (SSR output cross-user
-  disclosure, ReDoS in CORS/language middleware, header handling in the proxy
-  helper), `fast-uri` (host confusion via a backslash authority delimiter),
-  `ip-address` (three separate SSRF/trust-boundary bypasses via octal,
-  IPv4-mapped, and CIDR-suffix address confusion), and `@hono/node-server`
-  (path traversal on Windows). Fixed by a clean reinstall against the
-  existing `@modelcontextprotocol/sdk: ^1.0.0` range, which already permitted
-  the patched versions; no version constraint changed, only the resolved
-  tree (SDK 1.29.0 to 1.30.0, hono to 4.13.2, fast-uri to 3.1.5, ip-address
-  to 10.5.0, @hono/node-server to 2.1.1). This server only imports the SDK's
-  stdio transport (confirmed: `src/index.js` never imports `hono` or the
-  SDK's HTTP transport), so `hono` and `@hono/node-server` never load at
-  runtime here; `fast-uri` and `ip-address` sit deeper in the SDK's own
-  dependency tree and were not individually traced. Fixed regardless, since
-  Dependabot flags them independent of reachability and a clean scan is
-  the point.
+## 0.5.2 (2026-09-06)
 
-## 0.3.1
-- **Fix: the server no longer exits at startup when `REDDITAPIS_KEY` is missing.**
-  A registry connectivity scanner (Smithery, Glama, the official MCP registry,
-  Claude Connectors Directory) spins up the server with no real credential to
-  enumerate `tools/list`. Exiting before the transport connects made every
-  automated scan fail outright and read as a generic connectivity error rather
-  than a missing-key error, which is most of why this listing scored low on
-  every registry's capability-quality checks. Tools now register and
-  `tools/list` responds regardless of whether a key is present; an actual tool
-  call with no key still fails clearly, at the point of the call, with the
-  same style of message the existing 401 branch already used.
-- Adds `server.json` (official MCP server manifest: description, homepage,
-  repository, npm package identifier, and the `REDDITAPIS_KEY` config field
-  with a title and description) to the repo and to the published package, so
-  registry submissions have a durable, versioned source instead of a local,
-  never-committed file.
+### Added
 
-## 0.3.0
-- 4 new READ tools for the caller's own private Reddit listings (upvoted,
-  saved, hidden, gilded), each requiring the caller's own Reddit session
-  cookie obtained via `POST /api/reddit/login`.
-- Pagination docs clarified across every listing tool: `listing_status` on the
-  final page distinguishes `complete` (nothing missing) from `truncated`/
-  `unknown` (Reddit stopped serving a busy listing early), so a client no
-  longer reads a null `after` cursor as proof of a complete result set.
-- This CHANGELOG entry is retroactive; 0.3.0 published without one, along with
-  drifting one npm publish ahead of what GitHub had committed. Both are
-  corrected as part of the 0.3.1 pass.
+- **`reddit_post_visibility`.** Is a post still publicly visible, or did it quietly stop being so? A removed Reddit post still returns when you fetch it by id, with its title and score, so asking the post does not answer the question. This fetches the post and then one page of its author's submitted listing and compares them, returning a verdict of `live`, `not_visible` or `undecidable` with a plain-language reason and a `confident` flag. It never says WHY a post is not visible: a moderator removal, an admin removal, a spam filter and an author who has hidden their post history are indistinguishable from outside, and only one of them is a removal. `undecidable` is a real answer, not a failure. Two upstream calls, billed as one request at $0.004.
+
+## 0.5.1 (2026-09-06)
+
+### Fixed
+
+- **The npm package page was showing a description cut off mid-word.** `package.json` carried a 394-character description; npm stores at most 255 and truncates the rest without an error or a warning, so the visible end of the description on npmjs.com was the fragment `register/test/dele`. 139 characters were being silently discarded. Measured against `registry.npmjs.org` rather than guessed. The description is now 249 characters and ends as a sentence, and `scripts/prepublish-tenant-check.mjs` refuses to publish one that is over the bound or that does not end in a full stop, the second check being the one that catches a cut string regardless of its length.
+
+## 0.5.0 (2026-09-06)
+
+### Added
+
+- **`reddit_home_feed`, the caller's own front page.** A shared account pool can never answer "what is on MY home feed", so this reads it with your own Reddit session, sent as headers rather than in the URL. Part of the same change that gave nine existing read tools an authenticated mode: send `x-reddit-session` and `x-reddit-loid` and a private, restricted or member-only subreddit is readable as the account that belongs there, instead of coming back empty. Send neither and the read is served anonymously from the pool exactly as before, so existing integrations are untouched.
+- **`reddit_verify_comments`, verify up to a hundred comments in one call.**
+- **`reddit_feedback_list`, find a report whose id you lost.** `GET /feedback` with cursor paging and a type filter, so a report you sent and did not record is still reachable.
+
+### Fixed
+
+- **A foreign-tenant token that `git push` shipped and `npm pack` did not.** The published tarball was clean, so this never reached a customer through npm, but the string was in the repo.
+- The stuck-lock test used the wrong queue-directory env var and wrote to the real home directory instead of its fixture.
+- `send` now releases the queue lock across the network, a 409 carries no hint, and a posted draft fails soft rather than stranding the queue.
+
+### Why a minor rather than a patch
+
+The catalog moved from 38 tools to 41. A client enumerating tools sees three it did not have, which is a capability change, so anyone pinned to 0.4.x opts in rather than receiving it silently.
+
+### Note on the gap this closes
+
+0.4.0 was published on 2026-09-04 and the registry served it unchanged for two days while HEAD moved 50 commits ahead. Because both the registry and the repo said `0.4.0`, every version-based freshness check read clean while the BYTES differed: `src/index.js`, `src/tools.js` and `README.md` all diverged, and customers running `npx redditapis-mcp` were enumerating 38 tools against a repo that shipped 41. Found by `ship-chain.sh`, which compares the published tarball to HEAD file by file rather than comparing version strings.
+
+## 0.4.0 (2026-09-04)
+
+### Added
+
+- **`reddit_feedback_send` and `reddit_feedback_get`, report a bug or a gap to the redditapis.com team from inside the session you are already in.** Modelled on Claude Code's own feedback tool: the model drafts a report at a high-signal moment (a call failed in a way that is not your key, credits or a rate limit and you had to work around it; you asked for something no tool covers; a documented field came back empty or wrong; you were plainly frustrated with a result) into a local queue at `~/.redditapis/feedback-queue.json` (override with `REDDITAPIS_FEEDBACK_DIR`, at most 10 drafts), and nothing is sent until you review the queue and name the drafts to send. Each draft carries the last failing call's endpoint, status and request id, your MCP client's name and this package's version, filled in automatically, so a report is actionable without a follow-up. `reddit_feedback_send` takes `action` (`draft`, `list`, `send`, `discard`); `reddit_feedback_get` reads a sent report's status and the team's response. Both are free and need only your API key. The trigger list also ships as the server's MCP `instructions`, so a client that honours them nudges its model at the right moments, and every non-credential error body (anything but 401/402/429) now ends with a one-line pointer to the tool. This takes the catalog to 38 tools (34 documented in the table above plus the 4 cookie-authenticated user-history reads).
+- **Catalog support for local handlers.** A tool may declare `local: "<handler>"` in `src/tools.js` and name its local-only args in `localArgs`; those args are consumed in this package and never sent to the API. `src/index.js` refuses to boot if a catalog entry names a handler it does not implement, and the catalog test pins that every `localArgs` entry is a real key of the tool's shape, so neither flag can turn into a silent passthrough.
+
+### Fixed
+
+- `test/smoke.mjs` asserted a tool count of 32 against a catalog of 36; it now derives the expected count from the catalog it lists.
+
+## 0.3.0 (2026-08-16)
+
+### Added
+
+- **`exclude_subreddits` and `exclude_terms` on `reddit_monitor_add` and `reddit_monitor_update`.** Per-monitor subreddit exclusion for sitewide keyword watches, and term exclusion for every monitor. Published as a minor rather than a patch because a real capability was added; anyone pinned to 0.2.x opts in rather than receiving it silently. (This entry was written retroactively on 2026-09-04: the version shipped with no changelog line.)
 
 ## 0.2.0
 - **10 new monitor/webhook management tools** (task #43), the first WRITES this

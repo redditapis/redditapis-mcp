@@ -2,7 +2,17 @@
 // validates every tool is well-formed and that buildQuery/buildPath are correct,
 // so the catalog can't regress without the test spawning stdio or hitting the API.
 import assert from "node:assert/strict";
-import { TOOLS, buildQuery, buildPath, buildBody } from "../src/tools.js";
+import { readFileSync } from "node:fs";
+import { TOOLS, buildQuery, buildPath, buildBody, buildHeaders, SESSION_ARG_TO_HEADER } from "../src/tools.js";
+
+// The shipped README's tool table (`| `reddit_x` | METHOD /path | ... |`) is the
+// published contract a customer integrates against -- it goes out in the npm
+// tarball via package.json `files`. Parsed once here so the catalog can be
+// checked against something real instead of a number typed into this file.
+const README = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const DOCUMENTED_TOOLS = [
+  ...new Set([...README.matchAll(/^\| `(reddit_[a-z_]+)`/gm)].map((m) => m[1])),
+];
 
 let pass = 0;
 const check = (name, fn) => { fn(); pass++; console.log(`PASS  ${name}`); };
@@ -13,20 +23,98 @@ check("every tool has a unique name, path, description, and shape", () => {
     assert.ok(t.name && /^reddit_[a-z_]+$/.test(t.name), `bad name: ${t.name}`);
     assert.ok(!names.has(t.name), `duplicate name: ${t.name}`);
     names.add(t.name);
-    assert.ok(t.path && t.path.startsWith("/api/reddit/"), `bad path: ${t.path}`);
+    // THREE public mounts and no fourth: /api/reddit/* is the metered surface,
+    // /feedback* is the free agent-feedback pair, and /account/me is the free
+    // balance check. All three are served un-prefixed, mounted outside /api. A
+    // path under anything else is a typo or an unpublished route, and fails
+    // here before it can 404 live.
+    //
+    // /account/me WAS DELIBERATELY EXCLUDED and is now deliberately included.
+    // The old comment named /account as an example of a mount we do not expose,
+    // which was correct while no tool needed it. One does now: an agent
+    // planning a costed run had no way to ask how much credit was left, so it
+    // either ran blind into a 402 partway through or asked the user to go and
+    // look.
+    //
+    // ADDED ON LIVE EVIDENCE, which is the bar this gate exists to enforce:
+    //   /account/me            -> 401 unauthenticated (the route EXISTS)
+    //   /account/<nonsense>    -> 404                 (so 401 is not generic)
+    //   /api/<anything>        -> 401                 (which is why an /api
+    //                                                  path could not prove it)
+    // Listed as EXACT paths rather than an /account/ prefix, so /account/payments
+    // and any future sibling still have to be added on purpose.
+    const FREE_UNPREFIXED = new Set(["/feedback", "/account/me"]);
+    assert.ok(
+      t.path && (t.path.startsWith("/api/reddit/") || FREE_UNPREFIXED.has(t.path) || t.path.startsWith("/feedback/")),
+      `bad path: ${t.path}`,
+    );
     assert.ok(typeof t.description === "string" && t.description.length > 40, `weak description: ${t.name}`);
     assert.ok(t.shape && typeof t.shape === "object", `missing shape: ${t.name}`);
   }
 });
 
-// This count drifted silently once before: it still read 32 after the 0.3.0
-// publish added 4 private-listing read tools (upvoted/saved/hidden/gilded),
-// so this test was passing locally while checking a stale number against a
-// package.json version nobody had bumped for that release either. Whenever
-// this number changes again, bump it alongside a CHANGELOG entry in the same
-// commit, not after.
-check("catalog covers the 26 read endpoints plus 10 monitor/webhook management tools", () => {
-  assert.equal(TOOLS.length, 36);
+// Catalog size is a RATCHET, not a fixed number. `assert.equal(TOOLS.length, N)`
+// fails the day someone legitimately ships tool N+1, so it gets bumped
+// reflexively and stops meaning anything -- it had already drifted (asserted 32
+// against a live 36) without anyone noticing, which is precisely the failure mode
+// of an assertion nobody believes. The regression actually worth catching is the
+// opposite direction: a tool silently DISAPPEARING from the catalog while every
+// other test still passes, because each remaining tool is individually well-formed.
+//
+// Two checks cover that without punishing growth:
+//   1. A floor. Adding a tool always passes. Removing one fails. Raise
+//      CATALOG_FLOOR deliberately when you want to lock in new ground.
+//   2. Parity against the shipped README's tool table: every tool documented
+//      there must still exist by name, so a deletion fails and NAMES the tool
+//      rather than reporting an off-by-one integer.
+//
+// Direction matters: this runs README -> catalog, never the reverse. The catalog
+// deliberately carries tools the README table does not list (the cookie-
+// authenticated user-history reads, which need a REST login step that is not
+// itself an MCP tool), so requiring the reverse would fail on a documented-by-
+// design omission. tools.js is the source of truth; the README is the published
+// promise, and this asserts we have not broken a promise we already shipped.
+//
+// WHAT THIS STILL CANNOT SEE, stated plainly so nobody reads a green here as
+// more than it is: removing an UNDOCUMENTED tool while adding any other tool in
+// the same change keeps the length at or above the floor and leaves every
+// README-documented name present, so both checks pass. The four cookie-
+// authenticated user-history reads are the tools in that gap. Closing it needs a
+// name-by-name manifest, which is the hand-maintained list this replaced, so the
+// trade is deliberate rather than an oversight.
+//
+// IF YOU ADDED A TOOL: nothing here fails, and nothing needs editing. Bump
+// CATALOG_FLOOR to the new total (42 as of 2026-09-06) only if you want the
+// suite to guard the new tool's existence too, and add its README table row so
+// the parity check covers it.
+const CATALOG_FLOOR = 43;
+// Parser-sanity floor for the README table, NOT a second contract about how many
+// tools must be documented. It sits just under the 32 rows the table carries so
+// a reformat that silently drops a handful of rows still trips it, rather than
+// only a total collapse to zero. Deliberately un-documenting several tools at
+// once should lower this in the same commit, exactly like CATALOG_FLOOR.
+const README_ROW_FLOOR = 30;
+
+check(`the catalog carries at least its ${CATALOG_FLOOR}-tool floor`, () => {
+  assert.ok(
+    TOOLS.length >= CATALOG_FLOOR,
+    `catalog shrank to ${TOOLS.length} tools, below the ${CATALOG_FLOOR} floor -- a tool was removed. If that removal is intentional, lower CATALOG_FLOOR in the same commit and say why.`,
+  );
+});
+
+check("every tool documented in the shipped README still exists in the catalog", () => {
+  // Positive control FIRST: if the README's table format ever changes, the
+  // regex above matches fewer rows (or none), the loop below iterates a short
+  // list, and this check passes while seeing only part of the table. A parser
+  // failure must look like a failure, not like a clean catalog.
+  assert.ok(
+    DOCUMENTED_TOOLS.length >= README_ROW_FLOOR,
+    `parsed only ${DOCUMENTED_TOOLS.length} tool rows out of README.md, below the ${README_ROW_FLOOR} floor -- the parser broke, not the catalog`,
+  );
+  const names = new Set(TOOLS.map((t) => t.name));
+  for (const n of DOCUMENTED_TOOLS) {
+    assert.ok(names.has(n), `README.md documents ${n} but the catalog no longer exports it`);
+  }
 });
 
 check("every path param {x} has a matching shape key", () => {
@@ -41,25 +129,52 @@ check("every path param {x} has a matching shape key", () => {
 // task #43) deliberately breaks that: those tools configure the caller's OWN
 // redditapis.com account (an alerting subscription), never Reddit itself, so
 // they are a different risk class from the comment/vote/DM writes this catalog
-// still excludes. The invariant that survives: every GET tool is still a pure
-// read, and every write is one of the 10 named monitor/webhook tools -- so a
-// future addition can't silently start mutating state without being caught here.
+// still excludes. reddit_feedback_send (2026-09-04) joined them: it POSTs a
+// report the USER reviewed to the team, never to Reddit. The invariant that
+// survives: every GET tool is still a pure read, and every write is one of the
+// named tools below -- so a future addition can't silently start mutating
+// state without being caught here.
 const WRITE_TOOL_NAMES = new Set([
   "reddit_monitor_add", "reddit_monitor_update", "reddit_monitor_remove",
   "reddit_monitor_webhook_create", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete",
+  "reddit_feedback_send",
 ]);
 const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete"]);
 
-check("only the 6 named monitor/webhook tools are writes; everything else is a pure read", () => {
+// READS THAT USE POST. The verb is not the question, the EFFECT is: these send
+// their input in a body because it does not fit in a URL (100 comment ids), and
+// they change nothing on Reddit. The REST side already models this exactly the
+// same way, with READ_TIER_POST_ALLOWLIST in scripts/reconcile-endpoints.mjs,
+// so this list is the MCP mirror of that one and should move with it.
+//
+// Named individually rather than inferred from anything, because "POST but
+// harmless" is precisely the claim a reviewer should be able to check by
+// reading one line.
+const READ_VIA_POST_TOOL_NAMES = new Set(["reddit_verify_comments"]);
+
+check("only the 6 named monitor/webhook tools and reddit_feedback_send are writes; everything else is a pure read", () => {
   for (const t of TOOLS) {
     const method = t.method || "GET";
     if (WRITE_TOOL_NAMES.has(t.name)) {
       assert.equal(method, "POST", `${t.name}: a write tool must be POST`);
       assert.ok(t.write === true, `${t.name}: expected write: true`);
+    } else if (READ_VIA_POST_TOOL_NAMES.has(t.name)) {
+      // A read that posts. It must still NOT be marked write or destructive,
+      // which is the property that matters to a client deciding whether to ask
+      // the user first.
+      assert.equal(method, "POST", `${t.name}: declared a read-via-POST but is not POST`);
+      assert.ok(!t.write, `${t.name}: a read must never be marked write`);
+      assert.ok(!t.destructive, `${t.name}: a read must never be marked destructive`);
     } else {
       assert.equal(method, "GET", `${t.name}: expected a plain read (GET)`);
       assert.ok(!t.write, `${t.name} unexpectedly marked write`);
     }
+  }
+  // Same anti-vacuity guard the write list gets: a rename must not leave this
+  // exemption silently covering nothing.
+  const allNames = new Set(TOOLS.map((t) => t.name));
+  for (const n of READ_VIA_POST_TOOL_NAMES) {
+    assert.ok(allNames.has(n), `read-via-POST tool ${n} not found in catalog`);
   }
   // Every name in the allowlist must actually exist in the catalog -- catches
   // a rename that would otherwise leave this check vacuously passing.
@@ -79,6 +194,27 @@ check("every write tool's filterSpecFields (if any) are all present in its own s
       assert.ok(f in t.shape, `${t.name}: filterSpecFields names "${f}" but shape has no such key`);
     }
   }
+});
+
+// A local tool is dispatched inside this package (src/feedback.js) and its
+// local-only args must never reach the API. Two things make that safe and both
+// are pinned here: every `local` handler name is one src/index.js implements
+// (index.js also refuses to boot otherwise), and every `localArgs` entry is a
+// real key of the tool's own shape (a misspelt entry would silently send the
+// arg upstream).
+const LOCAL_HANDLER_NAMES = new Set(["feedback"]);
+check("local tools name an implemented handler and only local args that exist in their shape", () => {
+  const locals = TOOLS.filter((t) => t.local);
+  assert.ok(locals.length >= 1, "expected at least one local tool (reddit_feedback_send)");
+  for (const t of locals) {
+    assert.ok(LOCAL_HANDLER_NAMES.has(t.local), `${t.name}: unknown local handler "${t.local}"`);
+    for (const a of t.localArgs || []) assert.ok(a in t.shape, `${t.name}: localArgs names "${a}" but shape has no such key`);
+  }
+  const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  assert.equal(byName.reddit_feedback_send.local, "feedback");
+  assert.deepEqual(byName.reddit_feedback_send.localArgs, ["action", "ids"]);
+  assert.equal(byName.reddit_feedback_get.local, undefined, "reddit_feedback_get is a plain read of /feedback/{id}");
+  assert.equal(byName.reddit_feedback_get.method || "GET", "GET");
 });
 
 check("buildQuery skips empty/null/undefined and stringifies", () => {
@@ -143,3 +279,84 @@ check("search tools describe `t` as applying to 'relevance' (bug #11), listings 
 });
 
 console.log(`\n==== ${pass} tests passed ====`);
+
+// ── buildHeaders ────────────────────────────────────────────────────────────
+//
+// NIT from the adversarial review: buildQuery, buildPath and buildBody were all
+// covered and buildHeaders was not, so the claim that it is the IDENTITY for
+// every pre-existing tool lived only in a comment. It is the load-bearing claim
+// of the whole change: get it wrong and 38 shipped tools silently start sending
+// a caller's session in a header, or stop sending an argument at all.
+
+check("buildHeaders is the IDENTITY for a tool that does not declare sessionHeaders", () => {
+  const args = { subreddit: "x", sort: "top", reddit_session: "S", loid: "L", proxy: "http://h:1" };
+  const { headers, rest } = buildHeaders({ name: "reddit_subreddit_posts" }, args);
+  assert.deepStrictEqual(headers, {}, "a non-declaring tool must lift NOTHING onto headers");
+  assert.deepStrictEqual(rest, args, "and must pass every argument through untouched");
+});
+
+check("buildHeaders is the identity for undefined/null tools too", () => {
+  for (const tool of [undefined, null, {}, { sessionHeaders: false }]) {
+    const { headers, rest } = buildHeaders(tool, { a: 1, reddit_session: "S" });
+    assert.deepStrictEqual(headers, {});
+    assert.deepStrictEqual(rest, { a: 1, reddit_session: "S" });
+  }
+});
+
+check("a declaring tool lifts every session arg onto its header and leaves the rest as query", () => {
+  const { headers, rest } = buildHeaders(
+    { sessionHeaders: true },
+    {
+      reddit_session: "S", loid: "L", token_v2: "T", csrf_token: "C",
+      edgebucket: "E", csv: "V", session_tracker: "K", pc: "P",
+      proxy: "http://h:1", sort: "best", limit: 25,
+    }
+  );
+  assert.deepStrictEqual(headers, {
+    "x-reddit-session": "S", "x-reddit-loid": "L", "x-reddit-token-v2": "T",
+    "x-reddit-csrf-token": "C", "x-reddit-edgebucket": "E", "x-reddit-csv": "V",
+    "x-reddit-session-tracker": "K", "x-reddit-pc": "P", "x-reddit-proxy": "http://h:1",
+  });
+  assert.deepStrictEqual(rest, { sort: "best", limit: 25 },
+    "a lifted arg must NOT also remain in the query string");
+});
+
+check("a declared session arg that is empty is dropped, never sent as an empty header", () => {
+  // An empty x-reddit-session reads as "authenticate me" and earns a 400
+  // instead of the anonymous read the caller meant.
+  const { headers, rest } = buildHeaders(
+    { sessionHeaders: true },
+    { reddit_session: "", loid: null, token_v2: undefined, proxy: "", sort: "new" }
+  );
+  assert.deepStrictEqual(headers, {});
+  assert.deepStrictEqual(rest, { sort: "new" },
+    "a declared-but-empty session arg belongs in neither the headers nor the query");
+});
+
+check("SESSION_ARG_TO_HEADER covers every session field the map claims", () => {
+  // LITERAL, not derived from the thing under test.
+  assert.deepStrictEqual(SESSION_ARG_TO_HEADER, {
+    reddit_session: "x-reddit-session",
+    loid: "x-reddit-loid",
+    token_v2: "x-reddit-token-v2",
+    csrf_token: "x-reddit-csrf-token",
+    edgebucket: "x-reddit-edgebucket",
+    csv: "x-reddit-csv",
+    session_tracker: "x-reddit-session-tracker",
+    pc: "x-reddit-pc",
+    proxy: "x-reddit-proxy",
+  });
+});
+
+check("NO shipped tool other than the declared one lifts headers", () => {
+  // The identity claim across the whole catalog, asserted rather than commented.
+  const declaring = TOOLS.filter((t) => t.sessionHeaders).map((t) => t.name);
+  assert.deepStrictEqual(declaring, ["reddit_home_feed"],
+    `unexpected tools declare sessionHeaders: ${JSON.stringify(declaring)}`);
+  const sessionArgs = Object.fromEntries(Object.keys(SESSION_ARG_TO_HEADER).map((k) => [k, "v"]));
+  for (const t of TOOLS) {
+    if (t.sessionHeaders) continue;
+    const { headers } = buildHeaders(t, sessionArgs);
+    assert.deepStrictEqual(headers, {}, `${t.name} lifted headers it never declared`);
+  }
+});
