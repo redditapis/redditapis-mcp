@@ -61,7 +61,7 @@ const SORT_POSTS = {
 };
 const SORT_SEARCH = {
   sort: z.enum(["relevance", "hot", "top", "new", "comments"]).optional().describe(
-    "Sort order for search. 'relevance' = best match (default), 'top' = highest score in the `t` window, 'new' = most recent, 'hot' = trending, 'comments' = most-discussed.",
+    "Sort order for search. 'relevance' = best match (default), 'top' = highest score in the `t` window, 'new' = most recent, 'hot' = trending, 'comments' = most-discussed. Only 'relevance' weights how well a post matches; 'top', 'new' and 'comments' rank every loosely-matching post by that one number, so on a site-wide generic query 'top' returns viral posts that barely mention the terms. Prefer 'relevance', a quoted phrase, or a `subreddit` scope.",
   ),
 };
 const SORT_USER = {
@@ -265,7 +265,7 @@ export const TOOLS = [
     name: "reddit_search",
     path: "/api/reddit/search",
     description:
-      "Search Reddit posts across all of Reddit or within one subreddit. Returns matching posts with author, score, comments, permalink, and an `after` cursor. Use for topic/keyword research, brand monitoring, or finding discussions. Scope to a community with `subreddit`. Optional advanced filters narrow the results by minimum/maximum score, comment count, media type, and post flags, with an optional re-sort of the page. Because filters are applied to the returned page, the response then carries a `meta` object with page-completeness counts, so a filtered result is never mistaken for the whole set; paginate with `after` to filter more. Example: q='rust vs go' sort='top' t='year'.",
+      "Search Reddit posts across all of Reddit or within one subreddit. Returns matching posts with author, score, comments, permalink, and an `after` cursor. Use for topic/keyword research, brand monitoring, or finding discussions. Scope to a community with `subreddit`. Optional advanced filters narrow the results by minimum/maximum score, comment count, media type, and post flags, with an optional re-sort of the page. Because filters are applied to the returned page, the response then carries a `meta` object with page-completeness counts, so a filtered result is never mistaken for the whole set; paginate with `after` to filter more. SORT CAVEAT, measured 2026-09-11: `top`, `new` and `comments` order the MATCHING set by score, date or comment count alone, and Reddit matches loosely (image OCR, comments, and the word 'reddit' is in almost every big post), so a generic multi-word query with sort='top' and no subreddit returns the site-wide viral listing, not the topic. Even a distinctive term is ranked by score alone (q='pgvector' sort='top': 1 of 5 results was about pgvector, the rest were large posts that mention it once). For best-match-then-highest-score, fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page (it never reaches past the page), or quote the phrase (q='\"rust vs go\"'), or scope with `subreddit`. Example: q='rust vs go' sort='relevance' t='year' limit=100 sort_type='score'.",
     shape: {
       ...QUERY,
       subreddit: z.string().optional().describe(
@@ -287,7 +287,7 @@ export const TOOLS = [
       stickied: z.boolean().optional().describe("Filter by the stickied flag."),
       spoiler: z.boolean().optional().describe("Filter by the spoiler flag."),
       contest_mode: z.boolean().optional().describe("Filter by the contest_mode flag."),
-      sort_type: z.enum(["score", "num_comments", "created"]).optional().describe("Re-sort the filtered page (descending) by this field."),
+      sort_type: z.enum(["score", "num_comments", "created"]).optional().describe("Re-sort the filtered page (descending) by this field. Page-local: it re-orders only the posts this call returned, never the whole result set, so pair it with a large `limit`."),
     },
   },
   {
@@ -327,14 +327,14 @@ export const TOOLS = [
     name: "reddit_search_comments",
     path: "/api/reddit/search/comments",
     description:
-      "Search Reddit by COMMENT text. Reddit's comment search matches your keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions your query, carrying that post's title, selftext, score, and comment count. Use it to surface threads where a topic comes up in the replies that plain post-title search would miss. Reddit does not expose which specific comment matched or its text, so this returns posts, not comment bodies. For the actual comment bodies, use reddit_deep_comment_search. Example: q='best mechanical keyboard' sort='top'.",
+      "Search Reddit by COMMENT text. Reddit's comment search matches your keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions your query, carrying that post's title, selftext, score, and comment count. Use it to surface threads where a topic comes up in the replies that plain post-title search would miss. Reddit does not expose which specific comment matched or its text, so this returns posts, not comment bodies. For the actual comment bodies, use reddit_deep_comment_search. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
     shape: { ...QUERY, ...SORT_SEARCH, ...TIME_SEARCH, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
     name: "reddit_deep_comment_search",
     path: "/api/reddit/search/comments/deep",
     description:
-      "Genuine comment search: returns the ACTUAL comments whose body matches your keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. Unlike reddit_search_comments (which returns the parent posts, a Reddit limitation), this fetches each matching post's comment tree and filters the comment bodies for you, so you get first-hand opinions and answers directly. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. To go deeper than one call, paginate: pass the response's `after` cursor back as `after` to expand the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so a result always mentions your query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). Set group_by='author' for the research mode that returns WHO is talking about your query (distinct people ranked by matching-comment count) instead of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='top'.",
+      "Genuine comment search: returns the ACTUAL comments whose body matches your keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. Unlike reddit_search_comments (which returns the parent posts, a Reddit limitation), this fetches each matching post's comment tree and filters the comment bodies for you, so you get first-hand opinions and answers directly. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. To go deeper than one call, paginate: pass the response's `after` cursor back as `after` to expand the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so a result always mentions your query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). Set group_by='author' for the research mode that returns WHO is talking about your query (distinct people ranked by matching-comment count) instead of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
     shape: {
       ...QUERY,
       ...SORT_SEARCH,
@@ -409,6 +409,17 @@ export const TOOLS = [
     path: "/api/reddit/user/{name}",
     description:
       "Fetch a Reddit user's public profile by username. Returns account info: username, id, karma (post + comment), account age, verified/employee flags, and avatar. Use to vet or summarize a redditor. Example: name='spez'.",
+    shape: {
+      name: z.string().min(1).describe(
+        "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",
+      ),
+    },
+  },
+  {
+    name: "reddit_user_achievements",
+    path: "/api/reddit/user/{name}/achievements",
+    description:
+      "List a Reddit user's public achievements, the trophies shown on their reddit.com/user/<name>/achievements page. Returns each achievement's name, description, granted timestamp and icons, plus a count. An account with none returns an empty list rather than an error, so a zero count is a real answer. Use to gauge account age and standing (One-Year Club, Verified Email) or to check a moderator's history. Example: name='spez'.",
     shape: {
       name: z.string().min(1).describe(
         "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",

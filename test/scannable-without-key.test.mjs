@@ -84,4 +84,4 @@ assert.match(stderr, /Missing REDDITAPIS_KEY/, "startup must still warn that no 
 assert.match(stderr, /every call will fail until it is set/, "the warning must say what the consequence is");
 ok("startup still warns on stderr without exiting");
 
-console.log("\nall scannable-without-key assertions passed");
+console.log(`\nscannable-without-key: ${n} passed, 0 failed`);

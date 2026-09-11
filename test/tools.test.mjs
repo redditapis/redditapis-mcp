@@ -278,6 +278,61 @@ check("search tools describe `t` as applying to 'relevance' (bug #11), listings 
   );
 });
 
+check("reddit_search steers away from site-wide sort=top on generic queries (measured 2026-09-11)", () => {
+  // Reddit orders top/new/comments by that one number over a LOOSELY matched set
+  // (OCR, comments, and "reddit" is in nearly every big post), so a generic
+  // multi-word query with sort=top and no subreddit returned the site-wide viral
+  // listing while sort=relevance on the same query was on topic. The tool text
+  // is the only place a caller learns this, so pin it.
+  const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const t = byName["reddit_search"];
+  // The steering clause in the PROSE, not the Example line: a mutation that kept
+  // the example and deleted the guidance passed the first version of this test.
+  assert.match(t.description, /fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page/, "description must carry the page-local relevance+sort_type=score guidance");
+  assert.match(t.shape.sort_type.description, /page-local/i, "sort_type must say it re-orders only the returned page");
+  // The sort enum is SHARED by four search tools and only reddit_search accepts
+  // sort_type, so the enum text must steer without naming a parameter three of
+  // its consumers do not have, and must name the three score-only sorts rather
+  // than sweeping `hot` in as "the others".
+  const sortText = t.shape.sort.description;
+  assert.match(sortText, /Only 'relevance' weights how well a post matches; 'top', 'new' and 'comments' rank/, "sort enum must say only relevance weights match quality and name the three sorts");
+  assert.doesNotMatch(sortText, /sort_type/, "shared sort enum must not name sort_type, three consumers lack it");
+  for (const n of ["reddit_search_comments", "reddit_deep_comment_search", "reddit_search_media"]) {
+    assert.equal("sort_type" in byName[n].shape, false, `${n}: if this grows sort_type, revisit the shared enum text`);
+  }
+  // No search-family worked example models the anti-pattern, on any of the four.
+  for (const n of ["reddit_search", "reddit_search_comments", "reddit_deep_comment_search", "reddit_search_media"]) {
+    assert.doesNotMatch(byName[n].description, /Example:[^.]*sort='top'/, `${n}: the worked example must not model sort='top'`);
+  }
+});
+
+check("every public read tool in the catalog has a README table row (catalog -> README, with the documented omissions named)", () => {
+  // The README -> catalog check above cannot see a tool that ships UNDOCUMENTED.
+  // reddit_user_achievements sat in the catalog on main from 2026-09-07 with no
+  // README row and every test green, and README.md is in the npm files list, so
+  // the next publish would have shipped a tool the shipped contract omitted.
+  // This runs the reverse direction. The four cookie-authenticated user-history
+  // reads are omitted from the table BY DESIGN (they need a REST login step that
+  // is not itself an MCP tool), so they are named here rather than inferred;
+  // documenting one later means removing it from this set in the same change.
+  const DOCUMENTED_BY_DESIGN_OMISSIONS = new Set([
+    "reddit_user_gilded",
+    "reddit_user_hidden",
+    "reddit_user_saved",
+    "reddit_user_upvoted",
+  ]);
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const documented = new Set([...readme.matchAll(/^\|\s*`(reddit_[a-z0-9_]+)`\s*\|/gm)].map((m) => m[1]));
+  // Positive control on the parser: a README reformat that matches nothing must
+  // read as a failure here, not as "every tool is undocumented".
+  assert.ok(documented.size >= README_ROW_FLOOR, `README table parser saw ${documented.size} rows, below the ${README_ROW_FLOOR} floor`);
+  const missing = TOOLS.map((t) => t.name).filter((n) => !documented.has(n) && !DOCUMENTED_BY_DESIGN_OMISSIONS.has(n));
+  assert.deepStrictEqual(missing, [], `catalog tools with no README table row: ${missing.join(", ")} -- add the row, or name the omission in DOCUMENTED_BY_DESIGN_OMISSIONS with a reason`);
+  for (const n of DOCUMENTED_BY_DESIGN_OMISSIONS) {
+    assert.ok(!documented.has(n), `${n} is now documented in the README; remove it from DOCUMENTED_BY_DESIGN_OMISSIONS`);
+  }
+});
+
 console.log(`\n==== ${pass} tests passed ====`);
 
 // ── buildHeaders ────────────────────────────────────────────────────────────
