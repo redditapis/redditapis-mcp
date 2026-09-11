@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractConstraints } from "./refresh-registry-constraints.mjs";
+import { toolNames, versionClassVerdict, selftest } from "./version-class.mjs";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -40,6 +41,53 @@ const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // creates the drift, so refusing here means it cannot be created rather than
 // merely being reported later by a sweep. Publishing is irreversible, which is
 // why the check goes before it and not after.
+// ---------------------------------------------------------------------------
+// VERSION CLASS. A tool added to the catalog is a capability change, and the
+// CHANGELOG states at 0.4.0 and 0.5.0 that it ships as a MINOR so a consumer
+// pinned to the previous minor opts in rather than receiving it silently.
+// Nothing enforced that: 0.6.0 was first cut as 0.5.4 while adding
+// reddit_user_achievements (43 to 44 tools) and only an adversarial review
+// caught it (2026-09-11). This compares the authored catalog against the
+// PUBLISHED tarball, the emitting system, never a recorded count. It is pure in
+// versionClassVerdict so it can be red-tested without the network, and the live
+// path fails CLOSED when npm cannot be read: a publish that cannot see what it
+// is replacing must not proceed.
+function assertVersionClass() {
+  const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8"));
+  let published;
+  try {
+    published = execFileSync("npm", ["view", pkg.name, "version"], { encoding: "utf8" }).trim();
+  } catch (e) {
+    console.error(`\n[prepublish-tenant-check] BLOCKED: could not read the published version of ${pkg.name} from npm (${e.message.split("\n")[0]}). A publish that cannot see what it replaces does not proceed.`);
+    process.exit(1);
+  }
+  const scratch = mkdtempSync(join(tmpdir(), "prepublish-class-"));
+  let publishedTools;
+  try {
+    execFileSync("npm", ["pack", `${pkg.name}@${published}`, "--pack-destination", scratch], { stdio: "pipe" });
+    const tgz = execFileSync("ls", [scratch], { encoding: "utf8" }).trim().split("\n").find((f) => f.endsWith(".tgz"));
+    execFileSync("tar", ["-xzf", join(scratch, tgz), "-C", scratch]);
+    publishedTools = readFileSync(join(scratch, "package", "src", "tools.js"), "utf8");
+  } catch (e) {
+    console.error(`\n[prepublish-tenant-check] BLOCKED: could not read the published tarball of ${pkg.name}@${published} (${e.message.split("\n")[0]}). If src/tools.js moved in the published layout, update the path this check reads rather than skipping it.`);
+    process.exit(1);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  const localNames = toolNames(readFileSync(join(PKG_ROOT, "src", "tools.js"), "utf8"));
+  const publishedNames = toolNames(publishedTools);
+  if (localNames.length === 0 || publishedNames.length === 0) {
+    console.error(`\n[prepublish-tenant-check] BLOCKED: tool name reader saw ${localNames.length} authored and ${publishedNames.length} published tools; a zero means the anchor drifted, not an empty catalog.`);
+    process.exit(1);
+  }
+  const v = versionClassVerdict(pkg.version, published, localNames, publishedNames);
+  if (!v.ok) {
+    console.error(`\n[prepublish-tenant-check] BLOCKED: ${v.reason}.`);
+    process.exit(1);
+  }
+  console.log(`[prepublish-tenant-check] version class OK: ${v.reason}.`);
+}
+
 function assertVersionParity() {
   const pkg = JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8"));
   const srv = JSON.parse(readFileSync(join(PKG_ROOT, "server.json"), "utf8"));
@@ -65,7 +113,11 @@ function assertVersionParity() {
   // indistinguishable from one that never ran.
   console.log(`[prepublish-tenant-check] version parity OK: package.json, server.json (x2) all ${want}.`);
 }
+if (process.argv.includes("--selftest")) {
+  process.exit(selftest() ? 0 : 1);
+}
 assertVersionParity();
+assertVersionClass();
 
 // ── THE REGISTRY'S OWN LIMITS, READ FROM THE REGISTRY'S OWN SCHEMA ─────────
 //

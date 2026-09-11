@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 (2026-09-11)
+
+### Changed
+
+- **The server instructions now ask for a control before an "ignored parameter" report.** A generic query on a score-ordered sort returns the site-wide listing, which reads exactly like a dropped parameter and is not one; a report with that title was sent on 2026-09-11 and needed a correction. The instructions now say: before drafting a report that a parameter is ignored or a field is empty, re-run with a distinctive value that could only match if the parameter was honoured, and with the phrase quoted, then title the report by what the control showed.
+- **`prepublish-tenant-check` refuses a patch bump when the tool catalog grew.** It reads the published tarball from npm (the emitting system, never a recorded count), counts the catalog on both sides, and blocks a publish whose version is a patch over the published one while the catalog is larger. 0.6.0 was first cut as 0.5.4 with a new tool and only a reviewer caught it. Fails closed when npm cannot be read.
+
 ## 0.6.0 (2026-09-11)
 
 A minor rather than a patch because a tool was added: anyone pinned to 0.5.x opts in rather than receiving it silently, the same rule the 0.5.0 and 0.4.0 entries below state.
