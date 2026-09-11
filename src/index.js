@@ -184,7 +184,9 @@ const INSTRUCTIONS =
   "redditapis.com MCP server. Read tools cost credits per call (most $0.002); monitor, webhook and feedback tools are free. " +
   "If a redditapis tool call fails with an error other than 401/402/429 and the user has to work around it, if the user asks for something no redditapis tool covers, " +
   "if a documented field comes back empty or wrong, or if the user is clearly frustrated with a result, draft a report with reddit_feedback_send (action \"draft\"). " +
-  "Drafting is local and silent; never send a draft unless the user names it after reviewing action \"list\".";
+  "Drafting is local and silent; never send a draft unless the user names it after reviewing action \"list\". " +
+  "Before drafting a report that a parameter is IGNORED or a field is EMPTY, re-run the call with a distinctive value that could only match if the parameter was honoured, and with the phrase quoted; " +
+  "if either comes back on topic the issue is ranking or matching, so title it that way and say what the control showed.";
 
 const server = new McpServer({ name: "redditapis", version: VERSION }, { instructions: INSTRUCTIONS });
 

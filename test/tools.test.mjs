@@ -333,6 +333,16 @@ check("every public read tool in the catalog has a README table row (catalog -> 
   }
 });
 
+check("the server instructions tell the model to run a rare-term control before drafting an 'ignored parameter' report", () => {
+  // A generic query on a score-ordered sort returns the global listing, which
+  // reads exactly like a dropped parameter and is not one. Report f2ad7c34 was
+  // sent with that title on 2026-09-11 and needed a correction. The control
+  // costs one call, so the instructions ask for it where the model reads them.
+  const src = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(src, /re-run the call with a distinctive value that could only match if the parameter was honoured/, "instructions must ask for the distinctive-value control");
+  assert.match(src, /title it that way and say what the control showed/, "instructions must say to retitle on the control's result");
+});
+
 console.log(`\n==== ${pass} tests passed ====`);
 
 // ── buildHeaders ────────────────────────────────────────────────────────────
