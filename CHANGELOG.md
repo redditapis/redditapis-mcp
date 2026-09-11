@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 (2026-09-11)
+
+A minor rather than a patch because a tool was added: anyone pinned to 0.5.x opts in rather than receiving it silently, the same rule the 0.5.0 and 0.4.0 entries below state.
+
+### Added
+
+- **`reddit_user_achievements`.** A user's public achievements, the trophies on their reddit.com/user/<name>/achievements page, with name, description, granted timestamp and icons. An account with none returns an empty list, so a zero count is a real answer.
+
+### Changed
+
+- **`reddit_search` no longer steers you into site-wide `sort=top`.** Reddit orders `top`, `new` and `comments` by that one number over a LOOSELY matched set (OCR image text and comments count, and the word "reddit" is in almost every large post), so a generic multi-word query with `sort=top` and no `subreddit` returned the site-wide viral listing rather than the topic. Measured 2026-09-11: `q=reddit api pricing`, `sort=top`, `t=year` returned r/MadeMeSmile at 107k upvotes and a bathroom remodel; `sort=relevance` on the same query returned API-pricing threads; the quoted phrase returned exact matches only; `q=pgvector` was on topic on any sort. The tool description and the `sort` enum text now say only `relevance` weights match quality and point at `sort=relevance` plus `sort_type=score`, a quoted phrase, or a `subreddit` scope. The worked example no longer models `sort=top`.
+
+### Housekeeping
+
+- The authoring repo had fallen behind the published package: 0.5.3 shipped from the org repo on 2026-09-06 without landing here, so `src/index.js` in this repo still exited on a missing key. That change and its test are now back in the authoring repo, and this release is cut from it.
+
+## 0.5.3 (2026-09-06)
+
+### Fixed
+
+- **A registry scanner can now read the tool catalog without a key.** `src/index.js` used to `process.exit(1)` when `REDDITAPIS_KEY` was unset, so a directory that spawns the server to enumerate its tools got no answer to `initialize` and nothing from `tools/list`, and listed the server as uninspectable. Measured 2026-09-06 by speaking raw MCP stdio to the published 0.5.2 with an empty env. The server now warns and continues; a tool CALL with no key fails at the call with a clear message, and no `Bearer undefined` header is ever sent. Not a security relaxation: this is a stdio server, whoever spawns it already has local execution. Test: `test/scannable-without-key.test.mjs`. (This entry was written on 2026-09-11; the 0.5.3 release carried no changelog line.)
+
 ## 0.5.2 (2026-09-06)
 
 ### Added

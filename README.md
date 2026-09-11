@@ -151,6 +151,7 @@ A few conventions across the catalog:
 | `reddit_user_profile` | `GET /api/reddit/user/{name}` | A user's public profile: karma, account age, verified/employee flags, avatar. |
 | `reddit_user_comments` | `GET /api/reddit/user/{name}/comments` | A user's recent comments (body, score, subreddit, parent link, timestamp). |
 | `reddit_user_submitted` | `GET /api/reddit/user/{name}/submitted` | A user's submitted posts (the sibling of `reddit_user_comments`). |
+| `reddit_user_achievements` | `GET /api/reddit/user/{name}/achievements` | A user's public achievements (the trophies on their profile): name, description, granted timestamp, icons. An account with none returns an empty list. |
 
 ### Community browse (no keyword)
 
@@ -197,8 +198,9 @@ The agent calls `reddit_search` with:
 
 ```
 q: "borrow checker"
-sort: "top"
+sort: "relevance"
 t: "month"
+sort_type: "score"
 ```
 
 ### Read a community's top posts of the week
@@ -223,7 +225,7 @@ The agent calls `reddit_deep_comment_search` with:
 ```
 q: "mechanical keyboard"
 group_by: "author"
-sort: "top"
+sort: "relevance"
 ```
 
 Research mode returns the distinct people who mentioned the query, ranked by how many of their comments matched, each with their top comment and the subreddits they matched in.

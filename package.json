@@ -1,6 +1,6 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "mcpName": "io.github.redditapis/redditapis-mcp",
   "description": "Official MCP server for redditapis.com. Search Reddit posts, comments, communities, users and media; read subreddits, comment trees, top posts and profiles; create and manage monitors and webhooks. Native tools for Claude, Cursor and any MCP client.",
   "repository": {
