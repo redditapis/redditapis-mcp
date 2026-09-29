@@ -157,6 +157,14 @@ export const INSTRUCTIONS =
  *                                         (REDDITAPIS_FEEDBACK_DIR); a remote host gives each
  *                                         caller its own directory
  * @param {typeof fetch} [opts.fetchImpl]  injectable for tests
+ * @param {Record<string,string>} [opts.authHeaders]
+ *        headers that authenticate each call INSTEAD of the API key, for a host
+ *        that already authenticated the caller another way (a connected app's
+ *        OAuth token resolved to an account) and forwards calls over its own
+ *        trusted channel. When set, no API key is required or sent.
+ * @param {(ms:number)=>Promise<void>} [opts.sleepImpl] injectable for tests
+ * @param {number[]} [opts.retryDelaysMs] waits before each retry of a read that
+ *        hit a gateway failure (an API restart); default [3000, 8000]
  */
 export function createServer({
   apiKey,
@@ -164,6 +172,9 @@ export function createServer({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   feedbackEnv = process.env,
   fetchImpl = fetch,
+  authHeaders = null,
+  sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms)),
+  retryDelaysMs = [3000, 8000],
 } = {}) {
   const BASE_URL = String(baseUrl).replace(/\/+$/, "");
   const REQUEST_TIMEOUT_MS = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
@@ -185,7 +196,7 @@ export function createServer({
     // the request would carry an Authorization header reading "Bearer
     // undefined" and the caller would read a 401 about an INVALID key when the
     // real answer is that no key was ever set.
-    if (!apiKey) return paywallResult("no_key");
+    if (!apiKey && !authHeaders) return paywallResult("no_key");
     const { path, rest: pathRest } = buildPath(pathTemplate, args);
     // A tool that declares `sessionHeaders` has its Reddit session args lifted
     // out of the query and onto headers. For every other tool this is the
@@ -196,7 +207,7 @@ export function createServer({
     const url = `${BASE_URL}${path}${q ? `?${q}` : ""}`;
 
     const headers = {
-      Authorization: `Bearer ${apiKey}`,
+      ...(authHeaders ? authHeaders : { Authorization: `Bearer ${apiKey}` }),
       accept: "application/json",
       "user-agent": `reddit-mcp/${VERSION}`,
       ...sessionHeaders,
@@ -207,11 +218,29 @@ export function createServer({
       requestBody = JSON.stringify(buildBody(tool || {}, rest));
     }
 
+    // An API restart makes the gateway answer an HTML 502/503 or refuse the
+    // connection for a short window. A READ is retried through it; the API's own
+    // JSON errors, timeouts and writes never are, so a request the API may already have
+    // handled is never sent twice (a gateway 504 is not retried for that reason).
+    // Connection-level codes a restart produces. "fetch failed" alone is NOT one:
+    // undici uses it for DNS and TLS errors too, which retrying cannot fix.
+    const RETRYABLE_NET = new Set(["ECONNREFUSED", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET"]);
+    const gatewayFailure = (status, text) =>
+      (status === 502 || status === 503) && /^\s*<(!doctype|html)/i.test(text);
+    const transientNetwork = (err) =>
+      err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);
+    let attempt = 0;
+    for (;;) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
     try {
       const res = await fetchImpl(url, { method, headers, body: requestBody, signal: ctrl.signal });
       const body = await res.text();
+      if (!isWrite && attempt < retryDelaysMs.length && gatewayFailure(res.status, body)) {
+        clearTimeout(timer);
+        await sleepImpl(retryDelaysMs[attempt++]);
+        continue;
+      }
       if (!res.ok) {
         const hint = hintFor(res.status, path);
         lastError = {
@@ -242,11 +271,20 @@ export function createServer({
       lastError = null;
       return { content: [{ type: "text", text: body }] };
     } catch (err) {
-      const msg = err?.name === "AbortError" ? `timed out after ${REQUEST_TIMEOUT_MS}ms` : err?.message || String(err);
+      if (!isWrite && attempt < retryDelaysMs.length && transientNetwork(err)) {
+        clearTimeout(timer);
+        await sleepImpl(retryDelaysMs[attempt++]);
+        continue;
+      }
+      const code = err?.cause?.code ?? err?.code;
+      const msg = err?.name === "AbortError"
+        ? `timed out after ${REQUEST_TIMEOUT_MS}ms`
+        : `${err?.message || String(err)}${code ? ` (${code})` : ""}`;
       lastError = { path, method, status: null, error: msg.slice(0, 200), ts: Date.now() };
       return { isError: true, content: [{ type: "text", text: `Request failed: ${msg}` }] };
     } finally {
       clearTimeout(timer);
+    }
     }
   }
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0 (2026-09-29)
+
+### Added
+
+- **Remote hosting.** `redditapis-mcp/server` exports `createServer`, and an
+  `authHeaders` option authenticates calls with headers the host supplies
+  instead of an API key, for a remote MCP endpoint that has already signed the
+  caller in (a connected app over OAuth).
+
+### Changed
+
+- **A read rides out an API restart.** A read that gets the gateway's HTML
+  502/503, or a refused or reset connection, is retried after 3 and then 8
+  seconds. The API's own JSON errors, gateway timeouts, DNS or TLS failures
+  and every write are never retried, so a request the API may already have
+  handled is not sent twice.
+
 ## 0.7.0 (2026-09-29)
 
 ### Added
