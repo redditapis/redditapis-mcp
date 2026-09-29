@@ -51,7 +51,7 @@ const DEFAULT_NOT_FOUND_HINT =
 // here" and resume after. The payload is both appended to the text (every
 // client reads that) and returned as structuredContent (clients that parse it).
 export const SIGNUP_URL = "https://www.redditapis.com/signup?utm_source=mcp&utm_medium=tool_error";
-export const API_KEYS_URL = "https://www.redditapis.com/dashboard?utm_source=mcp&utm_medium=tool_error";
+export const API_KEYS_URL = "https://www.redditapis.com/dashboard/api-keys?utm_source=mcp&utm_medium=tool_error";
 export const TOP_UP_URL = "https://www.redditapis.com/dashboard/buy-credits?utm_source=mcp&utm_medium=tool_error";
 
 export function paywallFor(kind) {
@@ -67,7 +67,7 @@ export function paywallFor(kind) {
       retry: "same call, after the key is set",
     };
   }
-  if (kind === 401) {
+  if (kind === "bad_key") {
     return {
       needs: "valid_key",
       message:
@@ -77,7 +77,7 @@ export function paywallFor(kind) {
       retry: "same call, after the key is replaced",
     };
   }
-  if (kind === 402) {
+  if (kind === "credits") {
     return {
       needs: "credits",
       message:
@@ -90,8 +90,32 @@ export function paywallFor(kind) {
   return null;
 }
 
-function paywallResult(kind, detail = "") {
-  const p = paywallFor(kind);
+// Which failures ARE a paywall is decided from the API's own response BODY, not
+// the status alone, because the status is shared (review 2026-09-29): the API
+// answers a rejected key with 403 {"error":"Invalid token"} (401 is only a
+// MISSING token, which this client never sends), and 402 also means a monitor
+// plan or slot limit, which buying credits does not fix. Only the two bodies
+// below are paywalls; everything else keeps its ordinary hint.
+export function classifyPaywall(status, bodyText) {
+  let body = null;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    body = null;
+  }
+  const err = body && typeof body.error === "string" ? body.error : "";
+  if ((status === 403 || status === 401) && err === "Invalid token") return { kind: "bad_key" };
+  if (status === 402 && (err === "Insufficient credits" || typeof body?.top_up_url === "string")) {
+    const url = typeof body?.top_up_url === "string" && /^https:\/\/www\.redditapis\.com\//.test(body.top_up_url)
+      ? body.top_up_url
+      : null;
+    return { kind: "credits", topUpUrl: url };
+  }
+  return null;
+}
+
+function paywallResult(kind, detail = "", overrides = {}) {
+  const p = { ...paywallFor(kind), ...overrides };
   return {
     isError: true,
     content: [{ type: "text", text: `${p.message}${detail ? ` (${detail})` : ""}\n\n${JSON.stringify(p)}` }],
@@ -206,8 +230,9 @@ export function createServer({
           res.status === 401 || res.status === 402 || res.status === 404 || res.status === 409 || res.status === 429
             ? ""
             : " If this blocked the user's task and looks like a defect or a missing capability, draft a report with reddit_feedback_send (queued locally until the user reviews it).";
-        if (res.status === 401 || res.status === 402) {
-          return paywallResult(res.status, `HTTP ${res.status}: ${body.slice(0, 300)}`);
+        const pw = classifyPaywall(res.status, body);
+        if (pw) {
+          return paywallResult(pw.kind, `HTTP ${res.status}: ${body.slice(0, 1200)}`, pw.topUpUrl ? { action_url: pw.topUpUrl } : {});
         }
         return { isError: true, content: [{ type: "text", text: `HTTP ${res.status}${hint}: ${body.slice(0, 1200)}${feedbackHint}` }] };
       }
