@@ -198,8 +198,8 @@ check("every write tool's filterSpecFields (if any) are all present in its own s
 
 // A local tool is dispatched inside this package (src/feedback.js) and its
 // local-only args must never reach the API. Two things make that safe and both
-// are pinned here: every `local` handler name is one src/index.js implements
-// (index.js also refuses to boot otherwise), and every `localArgs` entry is a
+// are pinned here: every `local` handler name is one src/server.js implements
+// (createServer also refuses to build otherwise), and every `localArgs` entry is a
 // real key of the tool's own shape (a misspelt entry would silently send the
 // arg upstream).
 const LOCAL_HANDLER_NAMES = new Set(["feedback"]);
@@ -333,12 +333,15 @@ check("every public read tool in the catalog has a README table row (catalog -> 
   }
 });
 
+const { INSTRUCTIONS: SERVER_INSTRUCTIONS } = await import("../src/server.js");
 check("the server instructions tell the model to run a rare-term control before drafting an 'ignored parameter' report", () => {
   // A generic query on a score-ordered sort returns the global listing, which
   // reads exactly like a dropped parameter and is not one. Report f2ad7c34 was
   // sent with that title on 2026-09-11 and needed a correction. The control
   // costs one call, so the instructions ask for it where the model reads them.
-  const src = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  // Checked on the exported value the server sends, not on a source file, so
+  // moving the text between files cannot fool it.
+  const src = SERVER_INSTRUCTIONS;
   assert.match(src, /re-run the call with a distinctive value that could only match if the parameter was honoured/, "instructions must ask for the distinctive-value control");
   assert.match(src, /title it that way and say what the control showed/, "instructions must say to retitle on the control's result");
 });

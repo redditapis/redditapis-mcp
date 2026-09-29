@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Per-caller server state.** The server is now built by `createServer()` in
+  `src/server.js`, which holds the API key and the last-failed-call record in
+  its own closure instead of module globals. Under stdio nothing changes (one
+  process, one caller); it is the prerequisite for serving the same tools
+  remotely, where one process serves many callers. `src/index.js` is now only
+  the stdio entry and the one place config is read from the environment.
+  `test/per-caller-state.test.mjs` proves two servers in one process never
+  share a key or a failure record.
+
 ## 0.6.1 (2026-09-11)
 
 ### Changed
