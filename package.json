@@ -1,6 +1,6 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "mcpName": "io.github.redditapis/redditapis-mcp",
   "description": "Official MCP server for redditapis.com. Search Reddit posts, comments, communities, users and media; read subreddits, comment trees, top posts and profiles; create and manage monitors and webhooks. Native tools for Claude, Cursor and any MCP client.",
   "repository": {
@@ -26,11 +26,11 @@
   "scripts": {
     "start": "node src/index.js",
     "check": "node --check src/index.js && node --check src/tools.js && node --check src/feedback.js",
-    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs",
+    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs && node test/paywall.test.mjs",
     "prepublishOnly": "node scripts/prepublish-tenant-check.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.23.8 || ^4.0.0"
   },
   "keywords": [

@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-09-29)
+
+### Added
+
+- **Agent-actionable paywall.** A missing key, a rejected key (403 Invalid token)
+  and an empty balance (402 Insufficient credits) now return a structured payload
+  instead of a prose hint:
+  `needs` (`account`, `valid_key` or `credits`), the exact page to send the user
+  to (`action_url`: signup, API keys, or buy credits), and one sentence the
+  agent can relay, both in the text and as `structuredContent`. An agent that
+  runs out of credit mid-task can now tell the user where to top up and retry
+  the same call. Other failures keep their existing hints, including a 402 for
+  a monitoring plan or slot limit, which buying credits would not fix.
+- The MCP SDK floor is pinned to ^1.29.0.
 
 ### Changed
 

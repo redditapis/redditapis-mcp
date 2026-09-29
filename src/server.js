@@ -43,6 +43,86 @@ const NOT_FOUND_HINTS = [
 const DEFAULT_NOT_FOUND_HINT =
   " (not found. The subreddit, post id, user, or permalink may be wrong or deleted)";
 
+// AGENT-ACTIONABLE PAYWALL. A missing key, a rejected key and an empty balance
+// are the moments a user decides whether to keep using the product, and they
+// happen inside an agent's turn. Prose like "top up at redditapis.com" leaves
+// the agent guessing where to send the user; a structured payload names the
+// exact page, so the agent can say "you have used your free credit, top up
+// here" and resume after. The payload is both appended to the text (every
+// client reads that) and returned as structuredContent (clients that parse it).
+export const SIGNUP_URL = "https://www.redditapis.com/signup?utm_source=mcp&utm_medium=tool_error";
+export const API_KEYS_URL = "https://www.redditapis.com/dashboard/api-keys?utm_source=mcp&utm_medium=tool_error";
+export const TOP_UP_URL = "https://www.redditapis.com/dashboard/buy-credits?utm_source=mcp&utm_medium=tool_error";
+
+export function paywallFor(kind) {
+  if (kind === "no_key") {
+    return {
+      needs: "account",
+      message:
+        "Missing REDDITAPIS_KEY: no API key is set. Sign up free at redditapis.com (new accounts start " +
+        "with free credit, no card), copy the key from the dashboard, set REDDITAPIS_KEY in the MCP " +
+        "client config, then retry this call.",
+      action_url: SIGNUP_URL,
+      api_keys_url: API_KEYS_URL,
+      retry: "same call, after the key is set",
+    };
+  }
+  if (kind === "bad_key") {
+    return {
+      needs: "valid_key",
+      message:
+        "The redditapis.com API key was rejected (invalid, revoked or rotated). Copy a current key from " +
+        "the dashboard, set REDDITAPIS_KEY, then retry this call.",
+      action_url: API_KEYS_URL,
+      retry: "same call, after the key is replaced",
+    };
+  }
+  if (kind === "credits") {
+    return {
+      needs: "credits",
+      message:
+        "The redditapis.com account is out of credits. Top up (pay as you go, no subscription), then " +
+        "retry this call; nothing was charged for the failed request. reddit_account_me shows the balance.",
+      action_url: TOP_UP_URL,
+      retry: "same call, after topping up",
+    };
+  }
+  return null;
+}
+
+// Which failures ARE a paywall is decided from the API's own response BODY, not
+// the status alone, because the status is shared (review 2026-09-29): the API
+// answers a rejected key with 403 {"error":"Invalid token"} (401 is only a
+// MISSING token, which this client never sends), and 402 also means a monitor
+// plan or slot limit, which buying credits does not fix. Only the two bodies
+// below are paywalls; everything else keeps its ordinary hint.
+export function classifyPaywall(status, bodyText) {
+  let body = null;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    body = null;
+  }
+  const err = body && typeof body.error === "string" ? body.error : "";
+  if ((status === 403 || status === 401) && err === "Invalid token") return { kind: "bad_key" };
+  if (status === 402 && (err === "Insufficient credits" || typeof body?.top_up_url === "string")) {
+    const url = typeof body?.top_up_url === "string" && /^https:\/\/www\.redditapis\.com\//.test(body.top_up_url)
+      ? body.top_up_url
+      : null;
+    return { kind: "credits", topUpUrl: url };
+  }
+  return null;
+}
+
+function paywallResult(kind, detail = "", overrides = {}) {
+  const p = { ...paywallFor(kind), ...overrides };
+  return {
+    isError: true,
+    content: [{ type: "text", text: `${p.message}${detail ? ` (${detail})` : ""}\n\n${JSON.stringify(p)}` }],
+    structuredContent: p,
+  };
+}
+
 export function hintFor(status, path) {
   if (status === 401) return " (invalid or missing API key, verify REDDITAPIS_KEY at https://www.redditapis.com)";
   if (status === 402) return " (insufficient credits, top up at https://www.redditapis.com)";
@@ -105,15 +185,7 @@ export function createServer({
     // the request would carry an Authorization header reading "Bearer
     // undefined" and the caller would read a 401 about an INVALID key when the
     // real answer is that no key was ever set.
-    if (!apiKey) {
-      return {
-        isError: true,
-        content: [{
-          type: "text",
-          text: "Missing REDDITAPIS_KEY (no API key is set; get one at https://www.redditapis.com and set it in your MCP client config).",
-        }],
-      };
-    }
+    if (!apiKey) return paywallResult("no_key");
     const { path, rest: pathRest } = buildPath(pathTemplate, args);
     // A tool that declares `sessionHeaders` has its Reddit session args lifted
     // out of the query and onto headers. For every other tool this is the
@@ -158,6 +230,10 @@ export function createServer({
           res.status === 401 || res.status === 402 || res.status === 404 || res.status === 409 || res.status === 429
             ? ""
             : " If this blocked the user's task and looks like a defect or a missing capability, draft a report with reddit_feedback_send (queued locally until the user reviews it).";
+        const pw = classifyPaywall(res.status, body);
+        if (pw) {
+          return paywallResult(pw.kind, `HTTP ${res.status}: ${body.slice(0, 1200)}`, pw.topUpUrl ? { action_url: pw.topUpUrl } : {});
+        }
         return { isError: true, content: [{ type: "text", text: `HTTP ${res.status}${hint}: ${body.slice(0, 1200)}${feedbackHint}` }] };
       }
       // A success clears the record so a later draft never inherits an old
