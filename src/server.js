@@ -222,19 +222,24 @@ export function createServer({
     // connection for a short window. A READ is retried through it; the API's own
     // JSON errors, timeouts and writes never are, so a request the API may already have
     // handled is never sent twice (a gateway 504 is not retried for that reason).
-    // Connection-level codes a restart produces. "fetch failed" alone is NOT one:
-    // undici uses it for DNS and TLS errors too, which retrying cannot fix.
-    const RETRYABLE_NET = new Set(["ECONNREFUSED", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET"]);
+    // Only a REFUSED connection is retried: the request never reached the API,
+    // so it cannot have been handled or billed. A reset, a broken pipe or a
+    // socket dropped mid-answer can all happen after the API did the work, and
+    // "fetch failed" alone also covers DNS and TLS errors that retrying cannot fix.
+    const RETRYABLE_NET = new Set(["ECONNREFUSED"]);
     const gatewayFailure = (status, text) =>
       (status === 502 || status === 503) && /^\s*<(!doctype|html)/i.test(text);
     const transientNetwork = (err) =>
-      err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);
+      !gotResponse && err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);
     let attempt = 0;
+    let gotResponse = false;
     for (;;) {
+    gotResponse = false;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
     try {
       const res = await fetchImpl(url, { method, headers, body: requestBody, signal: ctrl.signal });
+      gotResponse = true;
       const body = await res.text();
       if (!isWrite && attempt < retryDelaysMs.length && gatewayFailure(res.status, body)) {
         clearTimeout(timer);

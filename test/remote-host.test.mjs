@@ -5,6 +5,7 @@
 //   - a read that lands in an API restart (the gateway's HTML 502/503/504, or a
 //     refused connection) is retried; JSON errors, timeouts and writes are not
 import assert from "node:assert/strict";
+import { createServer as createHttp } from "node:http";
 
 let n = 0;
 const ok = (m) => { n++; console.log(`  ok  ${m}`); };
@@ -110,6 +111,32 @@ const mk = (fetchImpl, extra = {}) =>
   await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
   assert.equal(calls.length, 1);
   ok("a gateway 504 is not retried (the app may already have done, and billed, the work)");
+}
+
+{
+  // A REAL socket that answers 200 headers and then drops mid-body: the API has
+  // already handled the request, so it must be sent exactly once.
+  let hits = 0;
+  const srv = createHttp((req, res) => { hits++; res.writeHead(200, { "content-length": "1000" }); res.write("{\"partial\":"); setTimeout(() => req.socket.destroy(), 20); });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  sleeps.length = 0;
+  const r = await mk(fetch, { baseUrl: `http://127.0.0.1:${srv.address().port}` }).callEndpoint("/api/reddit/search", { q: "x" });
+  srv.close();
+  assert.equal(hits, 1);
+  assert.deepEqual(sleeps, []);
+  assert.equal(r.isError, true);
+  ok("a response dropped mid-body is never re-sent (the API already handled it): exactly 1 hit");
+}
+{
+  // Closed after the request arrived but before any headers: also possibly handled.
+  let hits = 0;
+  const srv = createHttp((req) => { hits++; setTimeout(() => req.socket.destroy(), 20); });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  sleeps.length = 0;
+  await mk(fetch, { baseUrl: `http://127.0.0.1:${srv.address().port}` }).callEndpoint("/api/reddit/search", { q: "x" });
+  srv.close();
+  assert.equal(hits, 1);
+  ok("a socket closed after the request arrived is never re-sent: exactly 1 hit");
 }
 
 console.log(`\nremote-host: ${n} passed, 0 failed`);

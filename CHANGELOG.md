@@ -12,7 +12,7 @@
 ### Changed
 
 - **A read rides out an API restart.** A read that gets the gateway's HTML
-  502/503, or a refused or reset connection, is retried after 3 and then 8
+  502/503, or a refused connection, is retried after 3 and then 8
   seconds. The API's own JSON errors, gateway timeouts, DNS or TLS failures
   and every write are never retried, so a request the API may already have
   handled is not sent twice.
