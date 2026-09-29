@@ -5,8 +5,7 @@
 # only the `files` allowlist in package.json (src, README, LICENSE, CHANGELOG,
 # server.json), but `mcpb pack` starts from the whole working directory, so
 # everything the npm allowlist quietly excluded gets swept in unless it is
-# named here. Pattern and reasoning copied from products/twitterapis-mcp's
-# .mcpbignore, the reference-good example.
+# named here.
 
 # Local session + agent scratch. Never ships anywhere.
 .claude/
