@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-09-29)
+
+### Added
+
+- **Agent-actionable paywall.** A missing key, a rejected key (401) and an
+  empty balance (402) now return a structured payload instead of a prose hint:
+  `needs` (`account`, `valid_key` or `credits`), the exact page to send the user
+  to (`action_url`: signup, API keys, or buy credits), and one sentence the
+  agent can relay, both in the text and as `structuredContent`. An agent that
+  runs out of credit mid-task can now tell the user where to top up and retry
+  the same call. Other failures keep their existing hints.
 
 ### Changed
 
