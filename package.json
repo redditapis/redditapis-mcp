@@ -1,6 +1,6 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "mcpName": "io.github.redditapis/redditapis-mcp",
   "description": "Official MCP server for redditapis.com. Search Reddit posts, comments, communities, users and media; read subreddits, comment trees, top posts and profiles; create and manage monitors and webhooks. Native tools for Claude, Cursor and any MCP client.",
   "repository": {
@@ -13,6 +13,11 @@
     "redditapis-mcp": "src/index.js"
   },
   "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./server": "./src/server.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "src",
     "README.md",
@@ -26,7 +31,7 @@
   "scripts": {
     "start": "node src/index.js",
     "check": "node --check src/index.js && node --check src/tools.js && node --check src/feedback.js",
-    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs && node test/paywall.test.mjs",
+    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs && node test/paywall.test.mjs && node test/remote-host.test.mjs",
     "prepublishOnly": "node scripts/prepublish-tenant-check.mjs"
   },
   "dependencies": {
