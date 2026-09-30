@@ -26,5 +26,11 @@
         }
       ]
     }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.redditapis.com/mcp"
+    }
   ]
 }
