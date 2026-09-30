@@ -91,7 +91,18 @@ async function check(label) {
   return { npm, reg, problems };
 }
 
-const first = await check("before");
+// As postpublish, npm has ALREADY published (irreversibly) when this runs, and
+// `npm view` can lag a fresh publish for a while. Wait for npm to show the
+// version server.json declares before judging, so a lag is never reported as
+// a failure of a publish that succeeded.
+let first = await check("before");
+if (publish && pkgVersion !== first.npm) {
+  for (let i = 0; i < 12 && pkgVersion !== first.npm; i++) {
+    await new Promise((r) => setTimeout(r, 10_000));
+    first = await check(`waiting for npm to list ${pkgVersion} (${i + 1})`);
+  }
+}
+const NPM_OK = publish ? " The npm publish itself SUCCEEDED; only the registry step did not. Re-run: npm run check:registry-drift -- --publish" : "";
 if (first.problems.length === 0) {
   console.log("[registry-drift] IN STEP: registry, npm and server.json agree.");
   process.exit(0);
@@ -102,12 +113,12 @@ if (!publish) {
   process.exit(1);
 }
 if (serverVersion !== first.npm || pkgVersion !== first.npm) {
-  console.error("[registry-drift] REFUSED to publish: server.json does not describe the version on npm. Fix server.json first.");
+  console.error("[registry-drift] REFUSED to publish: server.json does not describe the version on npm. Fix server.json first." + NPM_OK);
   process.exit(1);
 }
 const token = process.env.MCP_REGISTRY_GITHUB_TOKEN || "";
 if (!token) {
-  console.error("[registry-drift] REFUSED to publish: MCP_REGISTRY_GITHUB_TOKEN is not set (a PAT for the namespace owner).");
+  console.error("[registry-drift] REFUSED to publish: MCP_REGISTRY_GITHUB_TOKEN is not set (a PAT for the namespace owner)." + NPM_OK);
   process.exit(1);
 }
 try {
@@ -115,7 +126,7 @@ try {
   const out = execFileSync("mcp-publisher", ["publish"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
   console.log(out.trim().split("\n").slice(-3).join("\n"));
 } catch (e) {
-  console.error(`[registry-drift] PUBLISH FAILED: ${(e.stderr || e.message).toString().trim().split("\n").slice(-3).join(" | ")}`);
+  console.error(`[registry-drift] PUBLISH FAILED: ${(e.stderr || "").toString().trim().split("\n").slice(-3).join(" | ") || "mcp-publisher exited non-zero"}.${NPM_OK}`);
   process.exit(1);
 }
 // The registry can take a moment to list a new version; poll before judging.
@@ -127,5 +138,5 @@ for (let i = 0; i < 12; i++) {
   }
   await new Promise((r) => setTimeout(r, 10_000));
 }
-console.error("[registry-drift] published, but the registry still lags npm after 2 minutes.");
+console.error("[registry-drift] published, but the registry still lags npm after 2 minutes." + NPM_OK);
 process.exit(1);
