@@ -97,7 +97,9 @@ async function check(label) {
 // a failure of a publish that succeeded.
 let first = await check("before");
 if (publish && pkgVersion !== first.npm) {
-  for (let i = 0; i < 12 && pkgVersion !== first.npm; i++) {
+  // Measured 2026-09-30: npm view took 2 to 3 minutes to list a fresh publish on
+  // both products, so a 2-minute wait failed real releases. Wait up to 6.
+  for (let i = 0; i < 36 && pkgVersion !== first.npm; i++) {
     await new Promise((r) => setTimeout(r, 10_000));
     first = await check(`waiting for npm to list ${pkgVersion} (${i + 1})`);
   }
