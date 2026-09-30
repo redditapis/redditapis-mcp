@@ -32,7 +32,9 @@
     "start": "node src/index.js",
     "check": "node --check src/index.js && node --check src/tools.js && node --check src/feedback.js",
     "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs && node test/paywall.test.mjs && node test/remote-host.test.mjs",
-    "prepublishOnly": "node scripts/prepublish-tenant-check.mjs"
+    "prepublishOnly": "node scripts/prepublish-tenant-check.mjs",
+    "postpublish": "node scripts/registry-drift.mjs --publish",
+    "check:registry-drift": "node scripts/registry-drift.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
