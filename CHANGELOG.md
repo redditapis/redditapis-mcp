@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.1 (2026-09-30)
+
+### Fixed
+
+- **The README's tool counts match the catalog.** It said 34 tools (22 reads, 10
+  monitor/webhook, 2 feedback); the server has shipped 44 since the feedback and
+  account tools landed: 30 Reddit reads, 10 monitor/webhook management tools, 3
+  feedback tools and `reddit_account_me`. No code change.
+
 ## 0.8.0 (2026-09-29)
 
 ### Added
