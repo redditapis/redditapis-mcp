@@ -139,7 +139,7 @@ const BAD_SCHEME_RE = /\b(?:javascript|vbscript):\S|\bfile:\/\/|\bdata:[a-z]+\/[
 const MAILTO_RE = /\bmailto:([^\s)"'`<>]+)/gi;
 
 function ownOrExample(host) {
-  if (OWN_HOSTS.has(host) || EXAMPLE_HOSTS.has(host)) return true;
+  if (OWN_HOSTS.has(host) || EXAMPLE_HOSTS.has(host) || host.endsWith(".redditapis.com")) return true;
   return [...EXAMPLE_HOSTS].some((e) => host.endsWith(`.${e}`));
 }
 
@@ -199,8 +199,10 @@ export function findingsFor(toolName, where, text) {
   for (const m of noAddr.matchAll(IPV4_RE)) out.push({ check: "d", tool: toolName, where, hit: `IP address ${m[0]}` });
   for (const m of text.matchAll(BAD_SCHEME_RE)) out.push({ check: "d", tool: toolName, where, hit: `scheme ${m[0].slice(0, 40)}` });
   for (const m of text.matchAll(MAILTO_RE)) {
-    for (const addr of m[1].replace(/[.;]+$/, "").split(",")) {
-      const dom = addr.split("?")[0].split("@").pop().toLowerCase();
+    const [to, query = ""] = m[1].replace(/[.;]+$/, "").split("?");
+    const extra = query.split("&").filter((kv) => /^(?:to|cc|bcc)=/i.test(kv)).map((kv) => decodeURIComponent(kv.split("=")[1] || ""));
+    for (const addr of [...to.split(","), ...extra.flatMap((x) => x.split(","))]) {
+      const dom = addr.split("@").pop().toLowerCase();
       if (dom !== "redditapis.com") out.push({ check: "d", tool: toolName, where, hit: `mailto ${addr.slice(0, 40)}` });
     }
   }
@@ -278,6 +280,7 @@ if (direct) {
     ["d", "Send to mailto:ops@example.org,support@redditapis.com."],
     ["d", "Fetch 203.0.113.9/agent.md."],
     ["d", "Read ftp://host/agent.md."],
+    ["d", "Write mailto:support@redditapis.com?cc=ops@example.org today."],
   ];
   for (const [check, text] of PLANTED) {
     const f = findingsFor("reddit_post", "planted", text);
@@ -297,6 +300,7 @@ if (direct) {
     "Upload a file: the path is returned. Python, JavaScript: both work.",
     "Returns data:application/json as prose. Accepts config.json or setup.sh names; Node.js v0.9.0, $0.002 a call.",
     "Webhook hosts such as hooks.slack.com and discord.com are accepted.",
+    "Incidents are posted on status.redditapis.com.",
   ];
   for (const text of CLEAN) {
     const f = findingsFor("reddit_post", "clean", text);
