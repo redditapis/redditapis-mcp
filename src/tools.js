@@ -749,7 +749,7 @@ export const TOOLS = [
         "Required for a draft. One line, at most 120 characters, naming the tool or endpoint and the defect, e.g. \"GET /api/reddit/comments returns 502 when the post is deleted\".",
       ),
       details: z.string().max(8000).optional().describe(
-        "Required for a draft. Free text, at most 8000 characters.",
+        "Required for a draft. At most 8000 characters: three labelled bullets, What happened, Repro, Evidence, optionally preceded by a one-line summary of the goal. No quotes of the conversation.",
       ),
       area: z.string().max(80).optional().describe(
         "Optional. The endpoint or feature the report is about, e.g. \"posts/comments\" or \"monitoring\". At most 80 characters.",

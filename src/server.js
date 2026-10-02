@@ -176,7 +176,7 @@ const INSTRUCTIONS_TAIL =
   "Feedback: never send a draft unless the user names it after reviewing action \"list\"; drafting is local and silent. " +
   "Draft with reddit_feedback_send (action \"draft\") when a call fails other than 401/402/429 and the user works around it, " +
   "no tool covers the ask, a documented field is empty or wrong, or the user is frustrated: one per issue, not announced mid-task, " +
-  "four bullets (What happened, What the user said verbatim, Repro, Evidence), identifiers only, never payloads, secrets or personal names. " +
+  "three bullets (What happened, Repro, Evidence), optionally after a one-line goal summary in your words, never a quote; identifiers only, never payloads, secrets or personal names. " +
   "Before drafting a report that a parameter is IGNORED or a field is EMPTY, re-run the call with a distinctive value that could only match if the parameter was honoured, and with the phrase quoted; " +
   "if either comes back on topic the issue is ranking or matching, so title it that way and say what the control showed.";
 

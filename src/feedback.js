@@ -224,7 +224,7 @@ export function createFeedbackHandler({ callEndpoint, version, getClientInfo, ge
       const title = String(args.title ?? "").trim();
       if (!title || title.length > MAX.title) return text(`title is required for a draft, at most ${MAX.title} characters.`, true);
       const details = String(args.details ?? "").trim();
-      if (!details || details.length > MAX.details) return text(`details is required for a draft, at most ${MAX.details} characters. Use the four labelled bullets: What happened, What the user said, Repro, Evidence.`, true);
+      if (!details || details.length > MAX.details) return text(`details is required for a draft, at most ${MAX.details} characters. Use the three labelled bullets: What happened, Repro, Evidence.`, true);
       const area = args.area ? String(args.area).trim().slice(0, MAX.area) : undefined;
 
       const client = clientString(getClientInfo?.(), version);
