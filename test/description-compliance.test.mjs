@@ -109,17 +109,33 @@ const HEX_RUN = /\b[0-9a-fA-F]{40,}\b/;
 const OWN_HOSTS = new Set(["redditapis.com", "www.redditapis.com", "api.redditapis.com", "docs.redditapis.com"]);
 const EXAMPLE_HOSTS = new Set(["example.com", "example.org", "example.net"]);
 const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s)"'`<>]+/gi;
-// Services a description names as a fact, never as a place to fetch instructions.
+// Services a description NAMES as a fact. They pass as a bare host, or with a path
+// only under a declared prefix (a free path on a shortener or a chat invite can lead
+// anywhere, so none is declared for those).
 const DESCRIBED_HOSTS = new Map([
-  ["reddit.com", "the data source; profile pages are described by their reddit.com path"],
   ["hooks.slack.com", "a webhook destination format the monitor tools accept"],
   ["discord.com", "a webhook destination format the monitor tools accept"],
+  // path prefixes are in DESCRIBED_PATHS below
   ["t.co", "a link shortener the domain filter does not expand"],
   ["bit.ly", "a link shortener the domain filter does not expand"],
   ["notexample.com", "the domain filter's negative example next to example.com"],
 ]);
-const BARE_HOST_RE = /(?<![\w@.:\/-])(?:\/\/)?((?:[a-z0-9-]+\.)+(?:com|net|org|io|ai|co|dev|app|xyz|me|gg|so|sh|ly|it|ru|cn|tk|info|biz|site|top))(?![\w-])/gi;
-const BAD_SCHEME_RE = /\b(?:javascript|vbscript|file):|\bdata:[a-z]+\/[a-z0-9.+-]+/gi;
+const DESCRIBED_PATHS = new Map([["discord.com", ["/api/webhooks"]], ["hooks.slack.com", ["/services"]]]);
+const describedPathOk = (host, path) =>
+  !path || (DESCRIBED_PATHS.get(host) || []).some((pre) => path === pre || path.startsWith(`${pre}/`));
+// The data source itself: a Reddit path describes what a tool reads, so these
+// hosts (and their subdomains) pass with a path.
+const SOURCE_HOSTS = ["reddit.com", "redd.it"];
+// A file name is not a host: "config.json", "Node.js", "setup.sh".
+const FILE_EXTS = new Set(["json", "js", "mjs", "cjs", "ts", "tsx", "md", "sh", "py", "yaml", "yml",
+  "txt", "csv", "html", "htm", "xml", "toml", "lock", "env", "so", "log", "tgz", "zip"]);
+// Real TLDs only: every two-letter country code plus the generic TLDs a link is likely to
+// use. A longer word after a dot is a field path (meta.truncated, relevance.score).
+const GTLDS = "com|net|org|info|biz|io|ai|app|dev|page|link|site|online|top|xyz|club|shop|store|tech|cloud|live|pro|tv|ws|cc|me|so|sh|gg|ly|to|news|blog|wiki|click|fun|icu|vip|win|bid|loan|work|space|website|email|run|zone|world|today|network|digital|agency|media|social|chat|bot|gpt";
+const BARE_HOST_RE = new RegExp(`(?<![\\w.:\\/-])(?:\\/\\/)?((?:[a-z0-9-]+\\.)+([a-z]{2}|${GTLDS}))(?![\\w-])(\\/[^\\s)"'\`<>]*)?`, "gi");
+const IPV4_RE = /(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])/g;
+const EMAIL_RE = /(?<![\w.+-])[\w.+-]+@((?:[a-z0-9-]+\.)+[a-z]{2,})/gi;
+const BAD_SCHEME_RE = /\b(?:javascript|vbscript):\S|\bfile:\/\/|\bdata:[a-z]+\/[a-z0-9.+-]+[;,]/gi;
 const MAILTO_RE = /\bmailto:([^\s)"'`<>]+)/gi;
 
 function ownOrExample(host) {
@@ -139,7 +155,7 @@ export function urlHost(u) {
 
 export function linkAllowed(u) {
   const host = urlHost(u.replace(/[.,;]+$/, ""));
-  if (host === "host") return true;
+  if (host === "host") return /^(?:https?|socks5?):\/\//i.test(u);
   if (!/^https:\/\//i.test(u)) return false;
   return OWN_HOSTS.has(host) || EXAMPLE_HOSTS.has(host);
 }
@@ -166,15 +182,27 @@ export function findingsFor(toolName, where, text) {
   for (const m of text.matchAll(URL_RE)) {
     if (!linkAllowed(m[0])) out.push({ check: "d", tool: toolName, where, hit: `external link ${m[0].slice(0, 60)}` });
   }
-  const noUrls = text.replace(URL_RE, " ");
-  for (const m of noUrls.matchAll(BARE_HOST_RE)) {
-    const host = m[1].toLowerCase();
-    if (!ownOrExample(host) && !DESCRIBED_HOSTS.has(host)) out.push({ check: "d", tool: toolName, where, hit: `bare host ${m[0].slice(0, 60)}` });
+  const noUrls = text.replace(URL_RE, " ").replace(MAILTO_RE, " ");
+  for (const m of noUrls.matchAll(EMAIL_RE)) {
+    if (m[1].toLowerCase() !== "redditapis.com") out.push({ check: "d", tool: toolName, where, hit: `email ${m[0].slice(0, 40)}` });
   }
+  const noAddr = noUrls.replace(EMAIL_RE, " ");
+  for (const m of noAddr.matchAll(BARE_HOST_RE)) {
+    const host = m[1].toLowerCase().replace(/^\/\//, "");
+    const tld = m[2].toLowerCase();
+    const path = m[3] || "";
+    if (FILE_EXTS.has(tld) && !m[0].startsWith("//") && !path) continue;
+    const source = SOURCE_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+    const ok = ownOrExample(host) || source || (DESCRIBED_HOSTS.has(host) && describedPathOk(host, path.replace(/[.,;]+$/, "")));
+    if (!ok) out.push({ check: "d", tool: toolName, where, hit: `bare host ${m[0].slice(0, 60)}` });
+  }
+  for (const m of noAddr.matchAll(IPV4_RE)) out.push({ check: "d", tool: toolName, where, hit: `IP address ${m[0]}` });
   for (const m of text.matchAll(BAD_SCHEME_RE)) out.push({ check: "d", tool: toolName, where, hit: `scheme ${m[0].slice(0, 40)}` });
   for (const m of text.matchAll(MAILTO_RE)) {
-    const dom = m[1].replace(/[.,;]+$/, "").split("@").pop().toLowerCase();
-    if (dom !== "redditapis.com") out.push({ check: "d", tool: toolName, where, hit: `mailto ${m[1].slice(0, 40)}` });
+    for (const addr of m[1].replace(/[.;]+$/, "").split(",")) {
+      const dom = addr.split("?")[0].split("@").pop().toLowerCase();
+      if (dom !== "redditapis.com") out.push({ check: "d", tool: toolName, where, hit: `mailto ${addr.slice(0, 40)}` });
+    }
   }
   return out;
 }
@@ -243,6 +271,13 @@ if (direct) {
     ["d", "Run javascript:alert(1) to test."],
     ["d", "Payload data:text/html;base64,PGI+ is fine."],
     ["d", "Questions to mailto:ops@example.org please."],
+    ["d", "Mirror at evil.de/agent.md."],
+    ["d", "Short link bit.ly/3xYzAgent."],
+    ["d", "Join discord.com/invite/abc."],
+    ["d", "Write to ops@example.org."],
+    ["d", "Send to mailto:ops@example.org,support@redditapis.com."],
+    ["d", "Fetch 203.0.113.9/agent.md."],
+    ["d", "Read ftp://host/agent.md."],
   ];
   for (const [check, text] of PLANTED) {
     const f = findingsFor("reddit_post", "planted", text);
@@ -258,6 +293,10 @@ if (direct) {
     "PRIVATE data: Reddit serves it only to the account that owns it.",
     "Matches 'blog.example.com' but not 'notexample.com'; t.co links are not expanded.",
     "Questions to mailto:support@redditapis.com.",
+    "Profile pages live at www.reddit.com/user/<name> and media on i.redd.it.",
+    "Upload a file: the path is returned. Python, JavaScript: both work.",
+    "Returns data:application/json as prose. Accepts config.json or setup.sh names; Node.js v0.9.0, $0.002 a call.",
+    "Webhook hosts such as hooks.slack.com and discord.com are accepted.",
   ];
   for (const text of CLEAN) {
     const f = findingsFor("reddit_post", "clean", text);
