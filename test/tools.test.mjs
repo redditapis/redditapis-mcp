@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TOOLS, buildQuery, buildPath, buildBody, buildHeaders, SESSION_ARG_TO_HEADER } from "../src/tools.js";
+import { INSTRUCTIONS as STEERING_INSTRUCTIONS } from "../src/server.js";
 
 // The shipped README's tool table (`| `reddit_x` | METHOD /path | ... |`) is the
 // published contract a customer integrates against -- it goes out in the npm
@@ -288,7 +289,14 @@ check("reddit_search steers away from site-wide sort=top on generic queries (mea
   const t = byName["reddit_search"];
   // The steering clause in the PROSE, not the Example line: a mutation that kept
   // the example and deleted the guidance passed the first version of this test.
-  assert.match(t.description, /fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page/, "description must carry the page-local relevance+sort_type=score guidance");
+  //
+  // 0.9.0 SPLIT IT IN TWO. The description states the FACT (which sort gives
+  // best match then highest score, and that sort_type is page-local); the
+  // STEERING ("fetch with ...") is model guidance, which the directory's
+  // compliance rule keeps out of descriptions, so it lives in the server
+  // instructions. Both halves are pinned, each where it now lives.
+  assert.match(t.description, /Best match then highest score comes from sort='relevance' with a large `limit`, where sort_type='score' re-orders that returned page/, "description must carry the page-local relevance+sort_type=score fact");
+  assert.match(STEERING_INSTRUCTIONS, /sort='relevance' with a large `limit` for best matches; sort_type='score' re-orders that page/, "server instructions must carry the relevance+sort_type=score steering");
   assert.match(t.shape.sort_type.description, /page-local/i, "sort_type must say it re-orders only the returned page");
   // The sort enum is SHARED by four search tools and only reddit_search accepts
   // sort_type, so the enum text must steer without naming a parameter three of

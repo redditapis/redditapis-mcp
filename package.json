@@ -1,6 +1,6 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "mcpName": "io.github.redditapis/redditapis-mcp",
   "description": "Official MCP server for redditapis.com. Search Reddit posts, comments, communities, users and media; read subreddits, comment trees, top posts and profiles; create and manage monitors and webhooks. Native tools for Claude, Cursor and any MCP client.",
   "repository": {
@@ -31,7 +31,7 @@
   "scripts": {
     "start": "node src/index.js",
     "check": "node --check src/index.js && node --check src/tools.js && node --check src/feedback.js",
-    "test": "node test/tools.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs && node test/paywall.test.mjs && node test/remote-host.test.mjs",
+    "test": "node test/tools.test.mjs && node test/description-compliance.test.mjs && node test/inline-credentials.test.mjs && node test/feedback.test.mjs && node test/index-lasterror.test.mjs && node test/scannable-without-key.test.mjs && node test/per-caller-state.test.mjs && node test/paywall.test.mjs && node test/remote-host.test.mjs",
     "prepublishOnly": "node scripts/prepublish-tenant-check.mjs",
     "postpublish": "node scripts/registry-drift.mjs --publish",
     "check:registry-drift": "node scripts/registry-drift.mjs"

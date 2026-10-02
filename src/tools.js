@@ -40,7 +40,7 @@ import { z } from "zod";
 // Shared Zod input-schema fragments.
 const LIMIT = {
   limit: z.number().int().min(1).max(100).optional().describe(
-    "Max items to return (1 to 100). The API clamps out-of-range values; endpoint default applies if omitted.",
+    "Maximum items returned, 1 to 100. The API clamps out-of-range values; the endpoint default applies when omitted.",
   ),
 };
 // Shared by every listing and search tool, so the rule about what an EMPTY
@@ -48,8 +48,8 @@ const LIMIT = {
 // where one of them would eventually be missed.
 const AFTER = {
   after: z.string().optional().describe(
-    "Opaque pagination cursor. Pass back the previous response's `after` value EXACTLY as it was returned; the format is not stable and a hand-written Reddit fullname loses the paging depth the cursor carries. Omit on the first call. " +
-      "When `after` comes back null there is no next page to request, and that does NOT reliably mean you have every item: Reddit often stops serving a busy listing long before it runs out. Read `listing_status` on that final response instead. It is `complete`, `truncated` or `unknown`, and ONLY `complete` means nothing is missing. Never report `truncated` or `unknown` to a user as the end of the data; say the answer is partial and widen across sorts, timeframes or search terms.",
+    "Opaque pagination cursor: the previous response's `after` value, exactly as it was returned. The format is not stable, and a hand-written Reddit fullname loses the paging depth the cursor carries. Absent on the opening page. " +
+      "A null `after` on a response means there is no next page; it does not by itself mean the listing is complete, because Reddit often stops serving a busy listing long before it runs out. That final response carries `listing_status`: `complete`, `truncated` or `unknown`, and only `complete` means nothing is missing.",
   ),
 };
 // Sort vocabularies differ by endpoint (they map to different Reddit listings):
@@ -61,7 +61,7 @@ const SORT_POSTS = {
 };
 const SORT_SEARCH = {
   sort: z.enum(["relevance", "hot", "top", "new", "comments"]).optional().describe(
-    "Sort order for search. 'relevance' = best match (default), 'top' = highest score in the `t` window, 'new' = most recent, 'hot' = trending, 'comments' = most-discussed. Only 'relevance' weights how well a post matches; 'top', 'new' and 'comments' rank every loosely-matching post by that one number, so on a site-wide generic query 'top' returns viral posts that barely mention the terms. Prefer 'relevance', a quoted phrase, or a `subreddit` scope.",
+    "Sort order for search. 'relevance' = best match (default), 'top' = highest score in the `t` window, 'new' = most recent, 'hot' = trending, 'comments' = most-discussed. Only 'relevance' weights how well a post matches; 'top', 'new' and 'comments' rank every loosely-matching post by that one number, so on a site-wide generic query 'top' returns viral posts that barely mention the terms. A quoted phrase or a `subreddit` scope narrows the matching set itself.",
   ),
 };
 const SORT_USER = {
@@ -80,12 +80,12 @@ const TIME = {
 // broad 'relevance' query, so search gets a separate, search-accurate description.
 const TIME_SEARCH = {
   t: z.enum(["hour", "day", "week", "month", "year", "all"]).optional().describe(
-    "Time window that bounds which posts the search returns, e.g. 'week' = only posts from the past week. Unlike a subreddit listing, search applies this to the 'relevance' and 'top' sorts too. When omitted, Reddit defaults to 'all', so a broad 'relevance' query surfaces old high-upvote posts that only loosely match. Pass 'week' or 'month' to keep results recent and on-topic.",
+    "Time window that bounds which posts the search returns, e.g. 'week' = only posts from the past week. Unlike a subreddit listing, search applies this to the 'relevance' and 'top' sorts too. When omitted, Reddit defaults to 'all', so a broad 'relevance' query surfaces old high-upvote posts that only loosely match; 'week' or 'month' keeps results recent and on topic.",
   ),
 };
 const NSFW = {
   nsfw: z.enum(["true", "false"]).optional().describe(
-    "Set 'true' to include over-18 / NSFW results. Omit or 'false' to exclude them (default).",
+    "'true' includes over-18 / NSFW results; 'false' or omitted excludes them (default).",
   ),
 };
 const QUERY = {
@@ -102,13 +102,13 @@ const QUERY = {
 // for its flat POST-body cookie fields.
 const LISTING_COOKIES = {
   reddit_session: z.string().min(1).describe(
-    "Reddit account session cookie. Obtain it by calling POST /api/reddit/login on the REST API first (not an MCP tool) and reusing the `reddit_session` cookie it returns. Required.",
+    "The Reddit account's session cookie, as returned by POST /api/reddit/login on the REST API (a REST call, not an MCP tool). Required.",
   ),
   loid: z.string().min(1).describe(
     "Reddit account loid cookie, from the same POST /api/reddit/login response. Required.",
   ),
   csrf_token: z.string().optional().describe(
-    "Reddit CSRF cookie, from the same login response. Not required for a read (CSRF only guards state-changing calls) but harmless to pass if you have it.",
+    "Reddit CSRF cookie, from the same login response. Optional: a read is accepted without it (CSRF only guards state-changing calls).",
   ),
 };
 
@@ -121,13 +121,13 @@ const LISTING_COOKIES = {
 // for. The REST API accepts both.
 const SESSION_HEADERS_REQUIRED = {
   reddit_session: z.string().min(1).describe(
-    "Your Reddit `reddit_session` cookie, from POST /api/reddit/login on the REST API (not an MCP tool). Sent as a header, never in the URL. Required.",
+    "The caller's Reddit session cookie, from POST /api/reddit/login on the REST API (a REST call, not an MCP tool). Sent as a request header, not in the URL. Required.",
   ),
   loid: z.string().min(1).describe(
-    "Your Reddit `loid` cookie, from the same login response. Required, and must be sent together with reddit_session.",
+    "The caller's Reddit loid cookie, from the same login response. Required, together with the session cookie.",
   ),
   token_v2: z.string().optional().describe(
-    "Your Reddit `token_v2` cookie, from the same login response. Optional.",
+    "The caller's Reddit token_v2 cookie, from the same login response. Optional.",
   ),
   proxy: z.string().optional().describe(
     "Optional proxy this read egresses through, so the request reaches Reddit from the IP this account normally acts from. http://user:pass@host:port or host:port. Pinned across retries.",
@@ -154,10 +154,10 @@ const SESSION_HEADERS_REQUIRED = {
 // with nothing anywhere reporting an error.
 const MONITOR_SUBREDDIT_DESC =
   "Subreddits to watch, without the r/ prefix (e.g. ['SaaS', 'startups']). 1 to 50. " +
-  "OMIT this entirely (and set `q`) to watch ALL of Reddit for a keyword -- a monitor must be anchored by " +
-  "either a subreddit list or a keyword, never neither. Do NOT pass ['all']: r/all is Reddit's site-wide " +
-  "listing rather than a subreddit, so it is refused with 400 subreddit_reserved. Sitewide monitors are " +
-  "capped per plan tier (see reddit_monitor_list's `slots`) and cover POSTS only.";
+  "Absent, with `q` set, the monitor watches ALL of Reddit for that keyword. A monitor is anchored by a " +
+  "subreddit list, a keyword or both; a request with neither is refused. ['all'] is refused with 400 " +
+  "subreddit_reserved, because r/all is Reddit's site-wide listing rather than a subreddit. Sitewide " +
+  "monitors are capped per plan tier (the `slots` object in the monitor list) and cover POSTS only.";
 const MONITOR_SUBREDDIT = {
   subreddit: z.array(z.string().min(1)).min(1).max(50).optional().describe(MONITOR_SUBREDDIT_DESC),
 };
@@ -166,52 +166,52 @@ const MONITOR_FILTER_FIELDS = {
   // because an agent that passes it alongside `subreddit` gets a 400 and needs
   // to know from the schema, not from the error, which of the two to drop.
   exclude_subreddits: z.array(z.string().min(1)).max(50).optional().describe(
-    "Subreddits to SUPPRESS, without the r/ prefix (e.g. ['politics', 'AskReddit']). SITEWIDE MONITORS ONLY: pass this only when you have OMITTED `subreddit` and anchored the monitor with `q`. Passing it together with `subreddit` is rejected with a field-level 400 -- a monitor that names its subreddits should drop the unwanted name from that list instead. Up to 50, matched exactly like `subreddit` so 'r/Politics', '/r/politics' and 'politics' are one entry. This is the noise control for an all-of-Reddit keyword watch: it filters DELIVERY only, so it never changes what is polled, never frees quota, and never affects matching in any other subreddit. Independent of exclude_terms -- an item is dropped if either fires.",
+    "Subreddits to SUPPRESS, without the r/ prefix (e.g. ['politics', 'AskReddit']). SITEWIDE MONITORS ONLY: accepted when `subreddit` is absent and `q` anchors the monitor; sent together with `subreddit` it is rejected with a field-level 400. Up to 50, matched exactly like `subreddit`, so 'r/Politics', '/r/politics' and 'politics' are one entry. This is the noise control for an all-of-Reddit keyword watch. It filters DELIVERY only: it does not change what is polled, free quota, or affect matching in any other subreddit. Independent of exclude_terms; an item is dropped if either fires.",
   ),
   q: z.string().max(200).optional().describe(
-    "Free-text keyword or phrase to match. Matched against the fields in `search_in` (default title+body+url). Omit to match every new post in the watched subreddits.",
+    "Free-text keyword or phrase to match, against the fields in `search_in` (default title+body+url). Absent, every new post in the watched subreddits matches.",
   ),
-  author: z.string().max(200).optional().describe("Only match posts by this Reddit username (without u/)."),
+  author: z.string().max(200).optional().describe("Matches only posts by this Reddit username (without u/)."),
   exclude_terms: z.array(z.string().min(1).max(200)).max(50).optional().describe(
-    "Posts containing any of these terms are suppressed even if they otherwise match. Use to cut noise (e.g. exclude 'giveaway' from a brand-mention monitor).",
+    "Posts containing any of these terms are suppressed even when they otherwise match, e.g. 'giveaway' excluded from a brand-mention monitor.",
   ),
   domain: z.array(z.string().min(1).max(200)).max(50).optional().describe(
-    "Outbound link domains to watch for (e.g. ['example.com']). Matches the post's link URL, any URL inside a self-post/comment body, and a crosspost's original link, including one that only appeared in the original post's body. Exact-or-subdomain match only: 'example.com' matches 'blog.example.com' but never 'notexample.com'. Does NOT resolve shortened links (bit.ly, t.co).",
+    "Outbound link domains to watch for (e.g. ['example.com']). Matches the post's link URL, any URL inside a self-post/comment body, and a crosspost's original link, including one that only appeared in the original post's body. Exact-or-subdomain match only: 'example.com' matches 'blog.example.com' but not 'notexample.com'. Shortened links (bit.ly, t.co) are not resolved.",
   ),
   include_any: z.array(z.string().min(1).max(200)).max(50).optional().describe(
-    "At least ONE of these terms must appear (OR match) for the post to qualify, on top of any `q`."
+    "A post qualifies when at least ONE of these terms appears (OR match), on top of any `q`."
   ),
   include_all: z.array(z.string().min(1).max(200)).max(50).optional().describe(
-    "EVERY one of these terms must appear (AND match) for the post to qualify, on top of any `q`."
+    "A post qualifies only when EVERY one of these terms appears (AND match), on top of any `q`."
   ),
   search_in: z.array(z.enum(["title", "body", "url", "permalink"])).min(1).optional().describe(
-    "Which fields keyword/term matching is scoped to. Default ['title', 'body', 'url']. Narrow to avoid false positives, e.g. a term that only appears in a URL slug matching a post that never mentions it in prose. All four resolve on comments as well as posts: on a comment, 'title' matches the title of the THREAD the comment sits under (a comment has no title of its own), which also applies through the default scope and can deliver every comment under a busy matching thread. Scope to ['body'] if you only want comments that say the term themselves.",
+    "Which fields keyword/term matching is scoped to. Default ['title', 'body', 'url']. A narrower scope avoids false positives, e.g. a term that only appears in a URL slug matching a post that does not mention it in prose. All four resolve on comments as well as posts: on a comment, 'title' matches the title of the THREAD the comment sits under (a comment has no title of its own), which also applies through the default scope and can deliver every comment under a busy matching thread. ['body'] limits comment matches to comments that contain the term themselves.",
   ),
   group: z.string().max(64).optional().describe(
-    "Optional label to bundle multiple matches into one delivery instead of one webhook call per match. Omit for one delivery per matching item.",
+    "Optional label that bundles multiple matches into one delivery in place of one webhook call per match. Absent, each matching item is its own delivery.",
   ),
   kind: z.enum(["post", "comment", "both"]).optional().describe(
-    "What to watch in the named subreddits: 'post' (default when omitted), 'comment', or 'both'. Comment monitoring requires a Growth, Pro or Scale plan -- on a lower tier this returns `comment_monitoring_requires_higher_tier` (402). Comments run roughly 7x the volume of posts, so expect proportionally more deliveries and check reddit_monitor_health's delivery ceiling before enabling it on a busy subreddit.",
+    "What to watch in the named subreddits: 'post' (default when omitted), 'comment', or 'both'. Comment monitoring requires a Growth, Pro or Scale plan; on a lower tier this returns `comment_monitoring_requires_higher_tier` (402). Comments run roughly 7x the volume of posts, so deliveries rise proportionally; the daily delivery ceiling per monitor is reported by monitor health.",
   ),
-  min_score: z.number().int().optional().describe("Only match posts with at least this many upvotes."),
+  min_score: z.number().int().optional().describe("Matches only posts with at least this many upvotes."),
   min_relevance: z.number().int().min(0).max(100).optional().describe(
-    "AI relevance floor, 0-100. 0 (the default) is off. Above 0, every match is scored by a language model against this monitor's own keywords and anything below the floor is NOT delivered -- it is recorded in your delivery history with status 'suppressed' and reason 'low_relevance', carrying its score and a one-line explanation, so you can always read what was filtered and why. Nothing is silently discarded. Rough calibration: 80-100 squarely on topic, 50-79 related but peripheral, 20-49 tangential, 0-19 the keyword is used in an unrelated sense. The comparison is inclusive, so a score equal to the floor is delivered. If scoring is unavailable the match is delivered UNSCORED rather than withheld. Requires a Growth, Pro or Scale plan -- on a lower tier this returns `ai_relevance_requires_higher_tier` (402). REJECTED with a field-level 400 on a monitor that has no q, include_any or include_all, because there would be no topic to score an item against and the floor could only ever admit everything.",
+    "AI relevance floor, 0-100. 0 (the default) is off. Above 0, every match is scored by a language model against this monitor's own keywords and anything below the floor is NOT delivered: it is recorded in the delivery history with status 'suppressed' and reason 'low_relevance', carrying its score and a one-line explanation, so what was filtered, and why, stays readable. Nothing is silently discarded. Rough calibration: 80-100 squarely on topic, 50-79 related but peripheral, 20-49 tangential, 0-19 the keyword is used in an unrelated sense. The comparison is inclusive, so a score equal to the floor is delivered. If scoring is unavailable the match is delivered UNSCORED rather than withheld. Requires a Growth, Pro or Scale plan; on a lower tier this returns `ai_relevance_requires_higher_tier` (402). REJECTED with a field-level 400 on a monitor that has no q, include_any or include_all, because there would be no topic to score an item against and the floor could only admit everything.",
   ),
-  nsfw: z.boolean().optional().describe("Set false to EXCLUDE NSFW/over-18 posts. Omitted or true both mean NSFW is allowed through -- there is no exclude-by-default; you must explicitly pass false to filter it out. POSTS ONLY: nsfw=false is REJECTED with a field-level 400 when kind is 'comment' or 'both', because Reddit flags NSFW on a post and never on an individual comment, so there is no field to filter a comment on. Run a kind='post' monitor to keep NSFW filtering, and cut unwanted comment text with exclude_terms."),
+  nsfw: z.boolean().optional().describe("false EXCLUDES NSFW/over-18 posts. Omitted or true both let NSFW through; there is no exclude-by-default, and only an explicit false filters it. POSTS ONLY: nsfw=false is REJECTED with a field-level 400 when kind is 'comment' or 'both', because Reddit flags NSFW on a post and not on an individual comment, so there is no field to filter a comment on. NSFW filtering is available on kind='post' monitors, and exclude_terms filters comment text."),
 };
 // Per-monitor webhook targeting (task #66, migration 009). NOT a filter_spec
 // field -- stays top-level in the request body, same as cadence_s/active, so
 // it is deliberately absent from MONITOR_FILTER_FIELDS/filterSpecFields.
 const MONITOR_WEBHOOK_IDS = {
   webhook_ids: z.array(z.string().min(1)).max(20).optional().describe(
-    "Restrict delivery to specific webhook(s) instead of every active webhook on the account. Pass id(s) from reddit_monitor_webhook_create/reddit_monitor_webhook_list. Omit (or pass an empty array) for the default: deliver to every active webhook you've registered. Every id must be a webhook you own -- returns `webhook_not_found` (400) otherwise.",
+    "Webhook ids that restrict this monitor's delivery to those webhooks. Omitted or an empty array means the default: delivery to every active webhook on the account. An id that is not a webhook on this account returns `webhook_not_found` (400).",
   ),
 };
 const MONITOR_ID = {
-  id: z.string().min(1).describe("The monitor's id, from reddit_monitor_add's response or reddit_monitor_list."),
+  id: z.string().min(1).describe("The monitor's id, as returned when the monitor was created or listed."),
 };
 const WEBHOOK_ID = {
-  id: z.string().min(1).describe("The webhook's id, from reddit_monitor_webhook_create's response or reddit_monitor_webhook_list."),
+  id: z.string().min(1).describe("The webhook's id, as returned when the webhook was created or listed."),
 };
 
 // The tool catalog. Path params are {name}/{id} placeholders. Monitor/webhook
@@ -222,7 +222,7 @@ export const TOOLS = [
     name: "reddit_subreddit_posts",
     path: "/api/reddit/posts",
     description:
-      "List posts from a subreddit by sort order. Use this to read a community's feed: newest, hot/trending, top-of-week, rising, etc. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. When `after` comes back null the response carries `listing_status`: `complete` means no older posts and is only claimed when the whole run came back in under one page, `truncated` means Reddit's cap cut you off, and `unknown` means we cannot tell, so do NOT report `unknown` as the end of the data. A busy feed that Reddit simply stops serving reports `unknown`, not `complete`, so treat `unknown` as an incomplete answer and widen across sorts, timeframes or search rather than paging deeper. Example: subreddit='programming' sort='top' t='week'.",
+      "Lists posts from a subreddit by sort order: newest, hot, top of a time window, rising, controversial or best. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. When `after` comes back null the response carries `listing_status`: `complete` means no older posts and is only claimed when the whole run came back in under one page, `truncated` means Reddit's cap cut the listing off, and `unknown` means completeness could not be established. A busy feed that Reddit stops serving reports `unknown`, not `complete`. Example: subreddit='programming' sort='top' t='week'.",
     shape: {
       subreddit: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'programming', 'AskReddit'). Required.",
@@ -238,10 +238,10 @@ export const TOOLS = [
     path: "/api/reddit/comments/verify",
     method: "POST",
     description:
-      "Check whether specific Reddit comments still EXIST and are publicly visible, in one batch of up to 100 ids. A READ despite being a POST (ids travel in the body because a hundred of them do not fit in a URL); it costs the same as any other read and changes nothing on Reddit. Use it to tell 'deleted by the author' from 'removed by a moderator' from 'still there', which a normal comment fetch cannot distinguish, and to re-check a list of comments you posted or collected earlier. Accepts bare ids and t1_-prefixed fullnames interchangeably. Returns one row per id, in the order you sent them, each with a status. Example: ids=['n5abcde','t1_n5fghij'].",
+      "Checks whether specific Reddit comments still EXIST and are publicly visible, in one batch of up to 100 ids. A READ despite being a POST (ids travel in the body because a hundred of them exceed a URL's length); it costs the same as any other read and changes nothing on Reddit. It distinguishes 'deleted by the author', 'removed by a moderator' and 'still there', which a normal comment fetch cannot. Accepts bare ids and t1_-prefixed fullnames interchangeably. Returns one row per id, in request order, each with a status. Example: ids=['n5abcde','t1_n5fghij'].",
     shape: {
       ids: z.array(z.string().min(1)).min(1).max(100).describe(
-        "Comment ids to check, 1 to 100 per call. Bare id ('n5abcde') or fullname ('t1_n5abcde'), mixed freely. Reddit's own batch lookup caps at 100; split larger lists across calls. Required.",
+        "Comment ids to check, 1 to 100 per call. Bare id ('n5abcde') or fullname ('t1_n5abcde'), mixed freely. Reddit's own batch lookup caps at 100 per call. Required.",
       ),
     },
   },
@@ -250,7 +250,7 @@ export const TOOLS = [
     path: "/api/reddit/feed",
     sessionHeaders: true,
     description:
-      "Read YOUR OWN Reddit home feed, the front page your subscriptions produce. Every other read tool here is served from a shared pool of accounts, so it cannot answer 'what is on my feed' -- this one sends your session instead. REQUIRES your own Reddit session: call POST /api/reddit/login on the REST API first (not an MCP tool) and pass the `reddit_session` and `loid` cookies it returns. Without them this returns 400, deliberately, because Reddit's logged-out front page is a different feed belonging to nobody rather than a thinner version of yours. Same post shape and `after` cursor as reddit_subreddit_posts. For a PUBLIC community feed use reddit_subreddit_posts instead. Example: sort='best' limit=25.",
+      "Reads the caller's own Reddit home feed, the front page their subscriptions produce. The other read tools are served from a shared pool of accounts and so cannot return a personal feed; this one sends the caller's session. Requires the caller's Reddit session cookies (session and loid) from POST /api/reddit/login on the REST API, which is not an MCP tool. Without them it returns 400, because Reddit's logged-out front page is a different feed belonging to nobody rather than a thinner version of the caller's. Same post shape and `after` cursor as the subreddit listing. Example: sort='best' limit=25.",
     shape: {
       ...SESSION_HEADERS_REQUIRED,
       sort: z.enum(["best", "hot", "new", "top", "rising", "controversial"]).optional().describe(
@@ -265,42 +265,36 @@ export const TOOLS = [
     name: "reddit_search",
     path: "/api/reddit/search",
     description:
-      "Search Reddit posts across all of Reddit or within one subreddit. Returns matching posts with author, score, comments, permalink, and an `after` cursor. Use for topic/keyword research, brand monitoring, or finding discussions. Scope to a community with `subreddit`. Optional advanced filters narrow the results by minimum/maximum score, comment count, media type, and post flags, with an optional re-sort of the page. Because filters are applied to the returned page, the response then carries a `meta` object with page-completeness counts, so a filtered result is never mistaken for the whole set; paginate with `after` to filter more. SORT CAVEAT, measured 2026-09-11: `top`, `new` and `comments` order the MATCHING set by score, date or comment count alone, and Reddit matches loosely (image OCR, comments, and the word 'reddit' is in almost every big post), so a generic multi-word query with sort='top' and no subreddit returns the site-wide viral listing, not the topic. Even a distinctive term is ranked by score alone (q='pgvector' sort='top': 1 of 5 results was about pgvector, the rest were large posts that mention it once). For best-match-then-highest-score, fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page (it never reaches past the page), or quote the phrase (q='\"rust vs go\"'), or scope with `subreddit`. Example: q='rust vs go' sort='relevance' t='year' limit=100 sort_type='score'.",
+      "Searches Reddit posts across all of Reddit or within one subreddit. Returns matching posts with author, score, comments, permalink, and an `after` cursor. `subreddit` scopes the search to one community. Optional advanced filters narrow the results by minimum/maximum score, comment count, media type, and post flags, with an optional re-sort of the page. Filters apply to the returned page, so a filtered response carries a `meta` object with page-completeness counts, and the next page comes from `after`. SORT BEHAVIOUR, measured 2026-09-11: `top`, `new` and `comments` order the MATCHING set by score, date or comment count alone, and Reddit matches loosely (image OCR, comments, and the word 'reddit' is in almost every big post), so a generic multi-word query with sort='top' and no subreddit returns the site-wide viral listing, not the topic. Even a distinctive term is ranked by score alone (q='pgvector' sort='top': 1 of 5 results was about pgvector, the rest were large posts that mention it once). Best match then highest score comes from sort='relevance' with a large `limit`, where sort_type='score' re-orders that returned page (it does not reach past the page); a quoted phrase (q='\"rust vs go\"') or a `subreddit` scope also narrows the matching set. Example: q='rust vs go' sort='relevance' t='year' limit=100 sort_type='score'.",
     shape: {
       ...QUERY,
       subreddit: z.string().optional().describe(
-        "Optional subreddit name (without r/) to restrict the search to one community. Omit to search all of Reddit.",
+        "Optional subreddit name (without r/) that restricts the search to one community. Absent, the search covers all of Reddit.",
       ),
       ...SORT_SEARCH,
       ...TIME_SEARCH,
       ...AFTER,
       ...NSFW,
       ...LIMIT,
-      min_score: z.number().int().optional().describe("Keep only posts with score >= this (applied to the returned page)."),
-      max_score: z.number().int().optional().describe("Keep only posts with score <= this."),
-      min_comments: z.number().int().optional().describe("Keep only posts with comment count >= this."),
-      max_comments: z.number().int().optional().describe("Keep only posts with comment count <= this."),
+      min_score: z.number().int().optional().describe("Keeps only posts with score >= this (applied to the returned page)."),
+      max_score: z.number().int().optional().describe("Keeps only posts with score <= this."),
+      min_comments: z.number().int().optional().describe("Keeps only posts with comment count >= this."),
+      max_comments: z.number().int().optional().describe("Keeps only posts with comment count <= this."),
       is_video: z.boolean().optional().describe("true = only video posts, false = only non-video."),
       is_self: z.boolean().optional().describe("true = only self/text posts, false = only link posts."),
-      over_18: z.boolean().optional().describe("Filter the page by NSFW flag (distinct from nsfw, which controls inclusion in the search)."),
-      locked: z.boolean().optional().describe("Filter by the locked flag."),
-      stickied: z.boolean().optional().describe("Filter by the stickied flag."),
-      spoiler: z.boolean().optional().describe("Filter by the spoiler flag."),
-      contest_mode: z.boolean().optional().describe("Filter by the contest_mode flag."),
-      sort_type: z.enum(["score", "num_comments", "created"]).optional().describe("Re-sort the filtered page (descending) by this field. Page-local: it re-orders only the posts this call returned, never the whole result set, so pair it with a large `limit`."),
+      over_18: z.boolean().optional().describe("Filters the page by NSFW flag (distinct from nsfw, which controls inclusion in the search)."),
+      locked: z.boolean().optional().describe("Filters by the locked flag."),
+      stickied: z.boolean().optional().describe("Filters by the stickied flag."),
+      spoiler: z.boolean().optional().describe("Filters by the spoiler flag."),
+      contest_mode: z.boolean().optional().describe("Filters by the contest_mode flag."),
+      sort_type: z.enum(["score", "num_comments", "created"]).optional().describe("Re-sorts the filtered page (descending) by this field. Page-local: it re-orders only the posts this call returned, not the whole result set, so its reach is bounded by `limit`."),
     },
   },
   {
     name: "reddit_post_visibility",
-    path: "/api/reddit/post/:id/visibility",
+    path: "/api/reddit/post/{id}/visibility",
     description:
-      "Is a post still publicly visible, or did it quietly stop being so? A removed Reddit post still " +
-      "returns when you fetch it by id, so asking the post does not answer this. This fetches the post " +
-      "and then one page of its author's submitted listing and compares them. Returns a verdict of live, " +
-      "not_visible or undecidable, a plain-language reason, and a confident flag. It deliberately never " +
-      "says WHY a post is not visible: a moderator removal, an admin removal, a spam filter and an author " +
-      "who has hidden their history are indistinguishable from outside. undecidable is a real answer, not " +
-      "a failure. Two upstream calls, billed as one $0.004 dual read.",
+      "Is a post still publicly visible, or did it quietly stop being so? A removed Reddit post still returns when fetched by id, so the post alone does not answer this. This fetches the post and then one page of its author's submitted listing and compares them. Returns a verdict of live, not_visible or undecidable, a plain-language reason, and a confident flag. By design it does not say WHY a post is not visible: a moderator removal, an admin removal, a spam filter and an author who has hidden their history are indistinguishable from outside. undecidable is a real answer, not a failure. Two upstream calls, billed as one $0.004 dual read.",
     shape: {
       id: z.string().min(1).describe("Reddit post id, base36, with or without the t3_ prefix"),
     },
@@ -309,7 +303,7 @@ export const TOOLS = [
     name: "reddit_post_comments",
     path: "/api/reddit/comments",
     description:
-      "Fetch a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. Use after finding a post via search/listing to read the full discussion. Pass the post's `permalink` from a prior result.",
+      "Fetches a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result.",
     shape: {
       permalink: z.string().min(1).describe(
         "The post permalink path from a prior post result, e.g. '/r/programming/comments/abc123/some_title/'. Required.",
@@ -320,21 +314,21 @@ export const TOOLS = [
     name: "reddit_search_communities",
     path: "/api/reddit/search/communities",
     description:
-      "Search for subreddits (communities) by name or topic. Returns matching subreddits with title, subscriber count, description, and NSFW flag. Use to discover where a topic is discussed before listing or searching its posts. Example: q='machine learning'.",
+      "Searches for subreddits (communities) by name or topic. Returns matching subreddits with title, subscriber count, description, and NSFW flag. Example: q='machine learning'.",
     shape: { ...QUERY, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
     name: "reddit_search_comments",
     path: "/api/reddit/search/comments",
     description:
-      "Search Reddit by COMMENT text. Reddit's comment search matches your keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions your query, carrying that post's title, selftext, score, and comment count. Use it to surface threads where a topic comes up in the replies that plain post-title search would miss. Reddit does not expose which specific comment matched or its text, so this returns posts, not comment bodies. For the actual comment bodies, use reddit_deep_comment_search. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
+      "Searches Reddit by COMMENT text. Reddit's comment search matches the keyword against comment bodies but returns the PARENT POSTS, not the individual comments, so each result is a post whose discussion mentions the query, carrying that post's title, selftext, score, and comment count. It surfaces threads where a topic comes up in the replies, which a post-title search misses. Reddit does not expose which specific comment matched or its text, so the results are posts, not comment bodies. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
     shape: { ...QUERY, ...SORT_SEARCH, ...TIME_SEARCH, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
     name: "reddit_deep_comment_search",
     path: "/api/reddit/search/comments/deep",
     description:
-      "Genuine comment search: returns the ACTUAL comments whose body matches your keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. Unlike reddit_search_comments (which returns the parent posts, a Reddit limitation), this fetches each matching post's comment tree and filters the comment bodies for you, so you get first-hand opinions and answers directly. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. To go deeper than one call, paginate: pass the response's `after` cursor back as `after` to expand the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so a result always mentions your query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). Set group_by='author' for the research mode that returns WHO is talking about your query (distinct people ranked by matching-comment count) instead of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
+      "Comment search that returns the ACTUAL comments whose body matches the keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. It fetches each matching post's comment tree and filters the comment bodies, so the results are first-hand opinions and answers rather than parent posts. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. The response's `after` cursor expands the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so every result mentions the query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). group_by='author' switches to a research mode that returns WHO is talking about the query (distinct people ranked by matching-comment count) in place of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
     shape: {
       ...QUERY,
       ...SORT_SEARCH,
@@ -342,16 +336,16 @@ export const TOOLS = [
       ...NSFW,
       ...AFTER,
       limit: z.number().int().min(1).max(25).optional().describe(
-        "Number of parent POSTS to expand into their comment trees (1-25, default 5). Each is one upstream read, so higher = deeper coverage but slower and more expensive. To go past 25, paginate with `after`.",
+        "Number of parent POSTS to expand into their comment trees (1-25, default 5). Each is one upstream read, so higher = deeper coverage but slower and more expensive. Beyond 25, the `after` cursor pages to the next batch.",
       ),
       max_comments: z.number().int().min(1).optional().describe(
-        "Optional cap on how many comments are returned; the highest-scored are kept. Omit to return every match. meta.capped is true when this trimmed the result.",
+        "Optional cap on how many comments are returned; the highest-scored are kept. Absent, every match is returned. meta.capped is true when this trimmed the result.",
       ),
       group_by: z.enum(["author"]).optional().describe(
-        "Set to 'author' for the RESEARCH mode: instead of a flat comment list, return the distinct PEOPLE who mentioned your query, ranked by how many of their comments matched (then total score). Each author has comment_count, total_score, the subreddits they matched in, and their top comment. Omit for the normal comment list.",
+        "'author' selects the RESEARCH mode: the distinct PEOPLE who mentioned the query, ranked by how many of their comments matched (then total score), in place of a flat comment list. Each author has comment_count, total_score, the subreddits they matched in, and their top comment. Absent, the normal comment list is returned.",
       ),
       max_authors: z.number().int().min(1).optional().describe(
-        "Only with group_by='author'. Optional cap on how many people are returned (the most prolific first). Omit to return everyone. meta.authors_capped is true when this trimmed the list.",
+        "Applies only with group_by='author'. Optional cap on how many people are returned (the most prolific first). Absent, every author is returned. meta.authors_capped is true when this trimmed the list.",
       ),
     },
   },
@@ -359,7 +353,7 @@ export const TOOLS = [
     name: "reddit_search_media",
     path: "/api/reddit/search/media",
     description:
-      "Search Reddit posts filtered to media (images, video, gifs). Returns media posts with the media URL/type, author, score, and the post url. Use `kind` to narrow to a media type. Example: q='aurora borealis' kind='image'.",
+      "Searches Reddit posts filtered to media (images, video, gifs). Returns media posts with the media URL/type, author, score, and the post url. `kind` narrows the results to one media type. Example: q='aurora borealis' kind='image'.",
     shape: {
       ...QUERY,
       kind: z.enum(["image", "video", "gif", "all"]).optional().describe(
@@ -376,14 +370,14 @@ export const TOOLS = [
     name: "reddit_search_users",
     path: "/api/reddit/search/users",
     description:
-      "Search for Reddit users (redditors) by name or keyword. Returns matching accounts with username, karma, and account age. Use to find a person's handle before fetching their profile or comments. Example: q='spez'.",
+      "Searches for Reddit users (redditors) by name or keyword. Returns matching accounts with username, karma, and account age. Example: q='spez'.",
     shape: { ...QUERY, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
     name: "reddit_subreddit_top",
     path: "/api/reddit/sub/{name}/top",
     description:
-      "Get the TOP posts of a subreddit for a time window. Shorthand for the highest-scoring posts of a community. Returns posts with score, author, comments, and permalink plus an `after` cursor. Example: name='science' t='month'.",
+      "Gets the TOP posts of a subreddit for a time window, the highest-scoring posts of a community. Returns posts with score, author, comments, and permalink plus an `after` cursor. Example: name='science' t='month'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'science'). Required (path parameter).",
@@ -397,7 +391,7 @@ export const TOOLS = [
     name: "reddit_post",
     path: "/api/reddit/post/{id}",
     description:
-      "Fetch a single Reddit post by its id. Returns the full post object (title, author, score, text, permalink, subreddit, url). Use when you already have a post id and want its details. Example: id='abc123' (the base-36 id, no t3_ prefix).",
+      "Fetches a single Reddit post by its id. Returns the full post object (title, author, score, text, permalink, subreddit, url). Example: id='abc123' (the base-36 id, no t3_ prefix).",
     shape: {
       id: z.string().min(1).describe(
         "The post's base-36 id (e.g. 'abc123'), without the 't3_' fullname prefix. Required (path parameter).",
@@ -408,7 +402,7 @@ export const TOOLS = [
     name: "reddit_user_profile",
     path: "/api/reddit/user/{name}",
     description:
-      "Fetch a Reddit user's public profile by username. Returns account info: username, id, karma (post + comment), account age, verified/employee flags, and avatar. Use to vet or summarize a redditor. Example: name='spez'.",
+      "Fetches a Reddit user's public profile by username. Returns account info: username, id, karma (post + comment), account age, verified/employee flags, and avatar. Example: name='spez'.",
     shape: {
       name: z.string().min(1).describe(
         "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",
@@ -419,7 +413,7 @@ export const TOOLS = [
     name: "reddit_user_achievements",
     path: "/api/reddit/user/{name}/achievements",
     description:
-      "List a Reddit user's public achievements, the trophies shown on their reddit.com/user/<name>/achievements page. Returns each achievement's name, description, granted timestamp and icons, plus a count. An account with none returns an empty list rather than an error, so a zero count is a real answer. Use to gauge account age and standing (One-Year Club, Verified Email) or to check a moderator's history. Example: name='spez'.",
+      "Lists a Reddit user's public achievements, the trophies shown on their reddit.com/user/<name>/achievements page. Returns each achievement's name, description, granted timestamp and icons, plus a count. An account with none returns an empty list rather than an error, so a zero count is a real answer. Achievements such as One-Year Club and Verified Email reflect account age and standing. Example: name='spez'.",
     shape: {
       name: z.string().min(1).describe(
         "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",
@@ -430,7 +424,7 @@ export const TOOLS = [
     name: "reddit_user_comments",
     path: "/api/reddit/user/{name}/comments",
     description:
-      "List a Reddit user's recent comments. Returns comments with body, score, subreddit, parent link, and timestamp plus an `after` cursor. Use to understand what a redditor talks about or to gather their opinions. Example: name='spez' sort='top'.",
+      "Lists a Reddit user's recent comments. Returns comments with body, score, subreddit, parent link, and timestamp plus an `after` cursor. Example: name='spez' sort='top'.",
     shape: {
       name: z.string().min(1).describe(
         "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",
@@ -444,7 +438,7 @@ export const TOOLS = [
     name: "reddit_user_submitted",
     path: "/api/reddit/user/{name}/submitted",
     description:
-      "List a Reddit user's submitted POSTS (their post history, the sibling of reddit_user_comments). Returns posts with title, author, score, comment count, and permalink, plus an `after` cursor. Use to see what a redditor posts, not just what they comment on. Example: name='spez' sort='top'.",
+      "Lists a Reddit user's submitted POSTS (their post history, as distinct from their comments). Returns posts with title, author, score, comment count, and permalink, plus an `after` cursor. Example: name='spez' sort='top'.",
     shape: {
       name: z.string().min(1).describe(
         "Reddit username WITHOUT the u/ prefix (e.g. 'spez'). Required (path parameter).",
@@ -459,10 +453,10 @@ export const TOOLS = [
     name: "reddit_user_upvoted",
     path: "/api/reddit/user/{name}/upvoted",
     description:
-      "List the posts and comments a Reddit account has UPVOTED. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+      "Lists the posts and comments a Reddit account has UPVOTED. PRIVATE data: Reddit serves it only to the account that owns it, so the request carries that account's Reddit session cookies (the session and loid arguments, from POST /api/reddit/login on the REST API, which is not an MCP tool) and returns 403 when `name` is a different account. Mixed listing: each item is a post or a comment, tagged `kind`. Example: name='spez' (the logged-in account).",
     shape: {
       name: z.string().min(1).describe(
-        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+        "Reddit username WITHOUT the u/ prefix: the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
       ),
       ...LISTING_COOKIES,
       ...SORT_USER,
@@ -475,10 +469,10 @@ export const TOOLS = [
     name: "reddit_user_saved",
     path: "/api/reddit/user/{name}/saved",
     description:
-      "List the posts and comments a Reddit account has SAVED. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+      "Lists the posts and comments a Reddit account has SAVED. PRIVATE data: Reddit serves it only to the account that owns it, so the request carries that account's Reddit session cookies (the session and loid arguments, from POST /api/reddit/login on the REST API, which is not an MCP tool) and returns 403 when `name` is a different account. Mixed listing: each item is a post or a comment, tagged `kind`. Example: name='spez' (the logged-in account).",
     shape: {
       name: z.string().min(1).describe(
-        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+        "Reddit username WITHOUT the u/ prefix: the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
       ),
       ...LISTING_COOKIES,
       ...SORT_USER,
@@ -491,10 +485,10 @@ export const TOOLS = [
     name: "reddit_user_hidden",
     path: "/api/reddit/user/{name}/hidden",
     description:
-      "List the posts and comments a Reddit account has HIDDEN. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+      "Lists the posts and comments a Reddit account has HIDDEN. PRIVATE data: Reddit serves it only to the account that owns it, so the request carries that account's Reddit session cookies (the session and loid arguments, from POST /api/reddit/login on the REST API, which is not an MCP tool) and returns 403 when `name` is a different account. Mixed listing: each item is a post or a comment, tagged `kind`. Example: name='spez' (the logged-in account).",
     shape: {
       name: z.string().min(1).describe(
-        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+        "Reddit username WITHOUT the u/ prefix: the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
       ),
       ...LISTING_COOKIES,
       ...SORT_USER,
@@ -507,10 +501,10 @@ export const TOOLS = [
     name: "reddit_user_gilded",
     path: "/api/reddit/user/{name}/gilded",
     description:
-      "List the posts and comments a Reddit account has received an award (gold) on. PRIVATE data -- Reddit only serves it to the account that owns it, so you must be logged in as `name` (see the `reddit_session`/`loid` args) or this returns 403. Mixed listing: each item is a post or a comment, tagged `kind`. Requires calling POST /api/reddit/login on the REST API first to get session cookies (not an MCP tool). Example: name='spez' (must match the logged-in account).",
+      "Lists the posts and comments a Reddit account has received an award (gold) on. PRIVATE data: Reddit serves it only to the account that owns it, so the request carries that account's Reddit session cookies (the session and loid arguments, from POST /api/reddit/login on the REST API, which is not an MCP tool) and returns 403 when `name` is a different account. Mixed listing: each item is a post or a comment, tagged `kind`. Example: name='spez' (the logged-in account).",
     shape: {
       name: z.string().min(1).describe(
-        "Reddit username WITHOUT the u/ prefix. Must be the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
+        "Reddit username WITHOUT the u/ prefix: the SAME account the supplied cookies belong to, or Reddit returns 403. Required (path parameter).",
       ),
       ...LISTING_COOKIES,
       ...SORT_USER,
@@ -523,7 +517,7 @@ export const TOOLS = [
     name: "reddit_subreddit_comments",
     path: "/api/reddit/sub/{name}/comments",
     description:
-      "Stream the NEWEST comments across an entire subreddit (Reddit's /r/<name>/comments feed), not one post's thread. Returns comments with body, author, score, subreddit, the parent post link, and timestamp, plus an `after` cursor. Poll it to catch new comments in a community as they are posted. Example: name='python'.",
+      "Streams the NEWEST comments across an entire subreddit (Reddit's /r/<name>/comments feed), not one post's thread. Returns comments with body, author, score, subreddit, the parent post link, and timestamp, plus an `after` cursor. Repeated calls surface new comments in a community as they are posted. Example: name='python'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -536,7 +530,7 @@ export const TOOLS = [
     name: "reddit_subreddit_about",
     path: "/api/reddit/sub/{name}/about",
     description:
-      "Fetch a subreddit's public metadata by name (Reddit's /r/<name>/about data). Returns the subreddit's title, public description, subscriber count, active-user count, creation timestamp, type, and NSFW flag. Use it to size or vet a community before listing or searching its posts. Example: name='python'.",
+      "Fetches a subreddit's public metadata by name (Reddit's /r/<name>/about data). Returns the subreddit's title, public description, subscriber count, active-user count, creation timestamp, type, and NSFW flag. Example: name='python'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -547,7 +541,7 @@ export const TOOLS = [
     name: "reddit_subreddit_rules",
     path: "/api/reddit/sub/{name}/rules",
     description:
-      "Fetch a subreddit's posting rules by name (Reddit's /r/<name>/about/rules data). Returns a `rules` list, each with name, description, what it applies to (posts, comments, or all), violation reason, priority, and creation date, plus a `site_rules` list of Reddit's site-wide rules. Use it to check a community's rules before posting or commenting. Example: name='python'.",
+      "Fetches a subreddit's posting rules by name (Reddit's /r/<name>/about/rules data). Returns a `rules` list, each with name, description, what it applies to (posts, comments, or all), violation reason, priority, and creation date, plus a `site_rules` list of Reddit's site-wide rules. Example: name='python'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -558,7 +552,7 @@ export const TOOLS = [
     name: "reddit_subreddit_moderators",
     path: "/api/reddit/sub/{name}/moderators",
     description:
-      "Fetch a subreddit's moderator team by name (Reddit's /r/<name>/about/moderators data). Returns a `moderators` list, each with `name`, `id`, `mod_permissions`, `flair_text`, and `added` (when they joined the mod team). Use it to see who moderates a community. Example: name='python'.",
+      "Fetches a subreddit's moderator team by name (Reddit's /r/<name>/about/moderators data). Returns a `moderators` list, each with `name`, `id`, `mod_permissions`, `flair_text`, and `added` (when they joined the mod team). Example: name='python'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -569,7 +563,7 @@ export const TOOLS = [
     name: "reddit_subreddit_wiki",
     path: "/api/reddit/sub/{name}/wiki/{page}",
     description:
-      "Fetch a subreddit's wiki page by name and page (Reddit's /r/<name>/wiki/<page> data). Returns a single object with `content_md` and `content_html`, a `may_revise` flag, and the last revision (`revision_id`, `revision_date`, `revised_by`, `reason`). Use it to read a community's wiki, such as its rules or FAQ. The page may be multi-segment, for example index, rules, or config/sidebar. Example: name='python', page='index'.",
+      "Fetches a subreddit's wiki page by name and page (Reddit's /r/<name>/wiki/<page> data). Returns a single object with `content_md` and `content_html`, a `may_revise` flag, and the last revision (`revision_id`, `revision_date`, `revised_by`, `reason`). A wiki commonly holds a community's rules or FAQ. The page may be multi-segment, for example index, rules, or config/sidebar. Example: name='python', page='index'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -583,7 +577,7 @@ export const TOOLS = [
     name: "reddit_by_id",
     path: "/api/reddit/by_id/{fullnames}",
     description:
-      "Bulk-fetch posts by their t3_ fullnames in ONE call (up to 100), instead of a request per post. Pass a comma-separated list of fullnames you already have from a search or listing to hydrate them. Returns posts with title, author, score, comment count, and permalink, the same post shape as the listing endpoints. The result is NOT always one-to-one with your request, so read `meta`: `listing_status` is `complete` only when every fullname came back, `truncated` is the boolean to branch on, and `missing_fullnames` names exactly which ids did not. Example: fullnames='t3_abc123,t3_def456'.",
+      "Bulk-fetches posts by their t3_ fullnames in ONE call (up to 100), in place of a request per post. Takes a comma-separated list of fullnames from a search or listing. Returns posts with title, author, score, comment count, and permalink, the same post shape as the listing endpoints. The result is not necessarily one-to-one with the request, and `meta` reports which: `listing_status` is `complete` only when every fullname came back, `truncated` is a boolean, and `missing_fullnames` names exactly which ids did not come back. Example: fullnames='t3_abc123,t3_def456'.",
     shape: {
       fullnames: z.string().min(1).describe(
         "Comma-separated post fullnames, each a t3_ prefix followed by the base-36 id (e.g. 't3_abc123,t3_def456'). Up to 100. Required (path parameter).",
@@ -594,21 +588,21 @@ export const TOOLS = [
     name: "reddit_subreddits_popular",
     path: "/api/reddit/subreddits/popular",
     description:
-      "Browse the most-subscribed, trending subreddits right now, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES communities by popularity; use reddit_search_communities instead to SEARCH communities by keyword.",
+      "Browses the most-subscribed, trending subreddits right now, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging.",
     shape: { ...AFTER, ...LIMIT },
   },
   {
     name: "reddit_subreddits_new",
     path: "/api/reddit/subreddits/new",
     description:
-      "Browse the newest subreddits, the communities most recently created, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES communities by recency; use reddit_search_communities instead to SEARCH communities by keyword.",
+      "Browses the newest subreddits, the communities most recently created, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging.",
     shape: { ...AFTER, ...LIMIT },
   },
   {
     name: "reddit_subreddits_default",
     path: "/api/reddit/subreddits/default",
     description:
-      "Browse Reddit's default front-page set of subreddits, no keyword needed. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. This BROWSES the default communities; use reddit_search_communities instead to SEARCH communities by keyword.",
+      "Browses Reddit's default front-page set of subreddits, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging.",
     shape: { ...AFTER, ...LIMIT },
   },
 
@@ -620,15 +614,15 @@ export const TOOLS = [
     write: true,
     filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "min_relevance", "nsfw"],
     description:
-      "Create a new Reddit monitor: watch one or more subreddits, or ALL of Reddit, for new posts (or comments, via `kind`) matching a filter, and get every match delivered to a webhook you've registered with reddit_monitor_webhook_create. Omit `subreddit` and set `q` for a sitewide keyword monitor covering every subreddit at once (posts only). By default matches go to EVERY active webhook on your account; pass `webhook_ids` to route this monitor's matches to only specific webhook(s). Every redditapis.com account holds a free entitlement of ONE all-of-Reddit post watch at a 60s cadence (up to 10,000 deliveries a day), so no subscription is needed to create that monitor. Naming a `subreddit`, matching comments, a faster cadence and any additional watch require a paid plan. Needs at least one monitor slot free (see reddit_monitor_list's `slots`). Forward-looking only from the moment of creation, or from `baseline_item_id` if given -- it never backfills posts that already existed. Returns the created monitor (with its `id`) on success, or `subscription_required` (402) if the account holds no recognised entitlement at all, `subreddit_scope_requires_paid_plan` (402) if a free account named a `subreddit`, `monitor_slots_exhausted` (402) if the plan's slot limit is reached, `sitewide_slots_exhausted` (402) if the plan's separate sitewide cap is reached, `distinct_subreddit_limit_reached` (402) if the account already watches as many DIFFERENT subreddits as the plan covers (the limit counts distinct subreddits across all your monitors, not monitors, and the same subreddit in two monitors counts once; see reddit_monitor_list's `slots.distinct_subreddits_total`), `sitewide_comment_monitoring_not_available` (501) if a sitewide monitor asks for comments, `subreddit_reserved` (400) if `subreddit` names 'all', `subreddit_not_found` (400) if a named subreddit does not exist, or `webhook_not_found` (400) if a `webhook_ids` entry is not yours.",
+      "Creates a Reddit monitor: watches one or more subreddits, or ALL of Reddit, for new posts (or comments, via `kind`) matching a filter, and delivers every match to the account's registered webhooks. With `subreddit` absent and `q` set, it is a sitewide keyword monitor covering every subreddit at once (posts only). By default matches go to EVERY active webhook on the account; `webhook_ids` routes this monitor's matches to specific webhooks. Every redditapis.com account holds a free entitlement of ONE all-of-Reddit post watch at a 60s cadence (up to 10,000 deliveries a day), so that monitor needs no subscription. Naming a `subreddit`, matching comments, a faster cadence and any additional watch require a paid plan. Needs at least one free monitor slot (the `slots` object in the monitor list). Forward-looking only, from the moment of creation or from `baseline_item_id` if given; posts that already existed are not backfilled. Returns the created monitor (with its `id`) on success, or `subscription_required` (402) if the account holds no recognised entitlement at all, `subreddit_scope_requires_paid_plan` (402) if a free account named a `subreddit`, `monitor_slots_exhausted` (402) if the plan's slot limit is reached, `sitewide_slots_exhausted` (402) if the plan's separate sitewide cap is reached, `distinct_subreddit_limit_reached` (402) if the account already watches as many DIFFERENT subreddits as the plan covers (the limit counts distinct subreddits across all the account's monitors, not monitors, and the same subreddit in two monitors counts once; `slots.distinct_subreddits_total` in the monitor list), `sitewide_comment_monitoring_not_available` (501) if a sitewide monitor asks for comments, `subreddit_reserved` (400) if `subreddit` names 'all', `subreddit_not_found` (400) if a named subreddit does not exist, or `webhook_not_found` (400) if a `webhook_ids` entry is not on this account.",
     shape: {
       ...MONITOR_SUBREDDIT,
       ...MONITOR_FILTER_FIELDS,
       cadence_s: z.number().int().positive().optional().describe(
-        "Requested poll interval in seconds. May only be SLOWER than the plan tier's floor, never faster -- a too-low value is silently clamped up to the tier's minimum. Omit to use the tier's default.",
+        "Requested poll interval in seconds. A value at or above the plan tier's floor is honoured; a lower value is silently clamped up to the tier's minimum. Absent, the tier's default applies.",
       ),
       baseline_item_id: z.string().optional().describe(
-        "A Reddit post fullname (e.g. 't3_abc123') to use as the starting point instead of 'now' -- matching starts strictly after this item. Omit to start from the moment of creation.",
+        "A Reddit post fullname (e.g. 't3_abc123') used as the starting point in place of 'now': matching starts strictly after this item. Absent, matching starts from the moment of creation.",
       ),
       ...MONITOR_WEBHOOK_IDS,
     },
@@ -637,7 +631,7 @@ export const TOOLS = [
     name: "reddit_monitor_list",
     path: "/api/reddit/monitor/list",
     description:
-      "List every monitor on the caller's account, with each one's filter, active state, and cadence, plus a `slots` object ({used, total, tier}) showing how many monitor slots are purchased vs in use. Reading your own list never requires an active plan (a lapsed subscription shows an empty or paused list, not an error). `webhook_ids` NULL DOES NOT MEAN THE MONITOR HAS NO DESTINATION: null is the default and means matches go to EVERY active webhook on the account, which is the normal healthy state. A non-empty array narrows delivery to just those webhook ids. Never report a monitor as having no delivery target on the strength of a null here -- to see where a monitor's matches actually went, read reddit_monitor_deliveries, whose rows carry the resolved `webhook_id`.",
+      "Lists every monitor on the caller's account, with each one's filter, active state, and cadence, plus a `slots` object ({used, total, tier}) showing how many monitor slots are purchased vs in use. Reading the list requires no active plan (a lapsed subscription shows an empty or paused list, not an error). A null `webhook_ids` is the default and means matches go to EVERY active webhook on the account, the normal healthy state, not a monitor without a destination; a non-empty array narrows delivery to those webhook ids. Where a monitor's matches actually went is recorded per delivery, as the resolved `webhook_id` on each delivery row.",
     shape: {},
   },
   {
@@ -647,18 +641,18 @@ export const TOOLS = [
     write: true,
     filterSpecFields: ["subreddit", "exclude_subreddits", "kind", "q", "author", "exclude_terms", "domain", "include_any", "include_all", "search_in", "group", "min_score", "min_relevance", "nsfw"],
     description:
-      "Update an existing monitor: pause/resume it (`active`), change its poll interval (`cadence_s`), switch between posts and comments (`kind`), replace its filter entirely, or re-target which webhook(s) it delivers to (`webhook_ids`). IMPORTANT: if you pass ANY filter field (subreddit, q, kind, domain, etc.), it REPLACES the whole filter, it does not merge with the existing one -- resupply every field you want kept, including `subreddit` AND `kind` (omitting `kind` reverts that monitor to posts-only). Same rule for `webhook_ids`: passing it REPLACES the monitor's targeting outright (an empty array clears back to 'every active webhook'); omitting it entirely leaves the monitor's existing targeting untouched. Omit all filter/webhook_ids fields to change only `active`/`cadence_s`. Returns 404 `monitor_not_found` if the id does not exist or is not yours, or 400 `webhook_not_found` if a `webhook_ids` entry is not yours.",
+      "Updates an existing monitor: pauses or resumes it (`active`), changes its poll interval (`cadence_s`), switches between posts and comments (`kind`), replaces its filter entirely, or re-targets which webhooks it delivers to (`webhook_ids`). Any filter field (subreddit, q, kind, domain, etc.) REPLACES the whole filter: it does not merge with the existing one, so a field absent from the request is cleared, and a request without `kind` reverts the monitor to posts-only. `webhook_ids` likewise REPLACES the monitor's targeting outright (an empty array clears back to every active webhook); a request without it leaves the existing targeting untouched. A request with only `active` and/or `cadence_s` changes only those. Returns 404 `monitor_not_found` if the id does not exist or is not on this account, or 400 `webhook_not_found` if a `webhook_ids` entry is not on this account.",
     shape: {
       ...MONITOR_ID,
       ...{
         subreddit: z.array(z.string().min(1)).min(1).max(50).optional().describe(
           MONITOR_SUBREDDIT_DESC +
-            " On an update, omitting this while passing another filter field makes the monitor SITEWIDE (the filter is replaced wholesale, not merged), so resupply it if you meant to keep the monitor scoped.",
+            " On an update, a request that carries another filter field without this one makes the monitor SITEWIDE (the filter is replaced wholesale, not merged).",
         ),
       },
       ...MONITOR_FILTER_FIELDS,
-      active: z.boolean().optional().describe("Set false to pause the monitor (stops matching/delivering), true to resume it."),
-      cadence_s: z.number().int().positive().optional().describe("New poll interval in seconds, same tier-floor clamping as reddit_monitor_add."),
+      active: z.boolean().optional().describe("false pauses the monitor (stops matching and delivering); true resumes it."),
+      cadence_s: z.number().int().positive().optional().describe("New poll interval in seconds, clamped to the tier floor the same way as at creation."),
       ...MONITOR_WEBHOOK_IDS,
     },
   },
@@ -669,28 +663,28 @@ export const TOOLS = [
     write: true,
     destructive: true,
     description:
-      "Delete a monitor. There is no undo endpoint -- it stops matching immediately, its slot is freed for a new monitor, and it disappears from reddit_monitor_list. Its past deliveries are NOT erased: they remain queryable via reddit_monitor_deliveries (both scoped by monitor_id and in the aggregate, no-id view) forever. Returns 404 `monitor_not_found` if the id does not exist or is not yours.",
+      "Deletes a monitor. There is no undo endpoint: it stops matching immediately, its slot is freed for a new monitor, and it disappears from the monitor list. Its past deliveries are NOT erased; they remain queryable in the delivery history (both by monitor id and in the aggregate, no-id view) indefinitely. Returns 404 `monitor_not_found` if the id does not exist or is not on this account.",
     shape: { ...MONITOR_ID },
   },
   {
     name: "reddit_monitor_health",
     path: "/api/reddit/monitor/health",
     description:
-      "Per-monitor health: whether it's active, its poll cadence, when it last matched something, and delivery counts for the last 24h (`delivered_24h`, `failed_24h`, `suppressed_24h`) plus whether its delivery ceiling has been hit (`ceiling_reached`) and what that ceiling is (`daily_delivery_ceiling`). `suppressed_24h` COUNTS TWO DIFFERENT THINGS AND `suppressed_breakdown` SPLITS THEM: `ceiling` (the monitor's daily cap was reached) and `stale` (the item was already older than the freshness window when we first saw it, so it was withheld rather than delivered as if it were new). A stale withhold is the usual reason a monitor's delivered count sits far below its matched count with no error anywhere, and it is the freshness gate working as intended -- nothing failed, the endpoint is fine, no limit on the plan rejected them, and retrying cannot recover the items. Do NOT read `suppressed_24h > 0` as 'this monitor is over its limit': `ceiling_reached` is the field that answers that, and a stale withhold deliberately does not set it. When `suppressed_breakdown.resolved` is false the counts do not add up to the total and `unresolved_reason` says why, so do not report a split off them; `ceiling_reached` stays conservative in that case rather than being cleared. THOSE COUNTS ONLY COVER POSTS WE FETCHED. A post we never fetched was never matched and leaves no row behind, so it is absent from all three counters rather than counted in any of them -- zeros there mean 'no matches recorded', never 'nothing was missed'. `coverage_24h` is the separate field that speaks to fetching, and its `status` is the one to read first: `complete` (every poll reached the point where the previous poll finished), `degraded` (at least one poll was truncated and posts were lost unrecoverably -- see `gaps[]`, `posts_in_window_at_least` and the estimated `posts_missed_estimate`), `partial` (nothing found, but not every kind of loss was checked -- see `unobserved_events`), or `unknown` (the check could not be run at all -- see `reason`). Do NOT report a monitor as healthy on `unknown` or `partial`, and do not treat a null count as zero: both mean the question went unanswered. `coverage_24h` is fed by the poll log and covers BOTH ways a poll loses posts unrecoverably (`listing_exhausted`, where Reddit stopped serving older posts, and `poll_overflow`, where the feed outran one poll's page budget); `observed_events` names what was actually checked, and a status of `complete` is only ever awarded when both were. WHAT `complete` DOES AND DOES NOT ESTABLISH: it means every poll that RAN got back to where the previous poll finished, AND that every feed was actually polled. The second half is `stream_liveness`, the field to read FIRST. `coverage_24h` is computed from the poll log, and a feed that is never polled writes nothing to that log, so it records no truncated poll and the coverage read comes back clean -- identical to a healthy monitor. `stream_liveness` reads a different source (the polling registry plus the per-feed last-successful-poll stamp), neither of which a poll that never ran can produce. Its `status` is `live` (every feed checked within three times its own interval), `degraded` (at least one is not: see `streams[]` for `never_polled`, `stalled` or `unregistered` per feed), or `unknown` (could not be established, including `streams_awaiting_first_poll` on a monitor created moments ago, which clears itself). `coverage_24h` can never read `complete` while this is anything but `live`. Do NOT report a monitor as healthy unless `stream_liveness.status` is `live`, and do not read a zero delivery count on a `never_polled` feed as a quiet subreddit: nothing was checked, so nothing could match. `gaps[]` IS A SAMPLE, NOT THE WHOLE LIST: it carries the most recent gaps only, `gaps_returned` says how many are in it, `gaps_truncated` says whether more exist, and `gap_events_24h` is always the true total. Count gaps from `gap_events_24h` and never from the length of `gaps[]`. FINALLY, `cadence` ANSWERS 'AM I BEING CHECKED AS OFTEN AS I PAY TO BE', which none of the fields above can. Cadence is a priced feature, so this is the field that says whether the monitor is being served the interval its plan sells. `promised_cadence_s` is the floor the account's CURRENT plan includes and `requested_cadence_s` is what this monitor is actually set to; `meets_entitlement` false means the monitor is set slower than the plan allows, which happens because a plan upgrade does NOT re-cadence monitors that already exist -- the fix is to set `cadence_s` on the monitor, and a deliberately slower cadence is also a legitimate choice. `last_checked_s_ago`, `freshness_ratio` and `within_margin` describe the slowest feed feeding this monitor, named in `slowest_stream`. READ `freshness_reading` BEFORE QUOTING ANY OF THEM: it is ONE INSTANTANEOUS SAMPLE, not an average and not a sustained verdict, so a single reading past the margin is not by itself proof of under-service. Every one of these is TRI-STATE and null NEVER means fine: a null `within_margin` or `meets_entitlement` means the question could not be answered, and `unknown_reason` says why. Do not report a monitor as on-cadence on a null.",
+      "Per-monitor health: active state, poll cadence, when it last matched something, and delivery counts for the last 24h (`delivered_24h`, `failed_24h`, `suppressed_24h`), plus whether its delivery ceiling has been hit (`ceiling_reached`) and what that ceiling is (`daily_delivery_ceiling`). `suppressed_24h` COUNTS TWO DIFFERENT THINGS AND `suppressed_breakdown` SPLITS THEM: `ceiling` (the monitor's daily cap was reached) and `stale` (the item was already older than the freshness window when first seen, so it was withheld rather than delivered as if it were new). A stale withhold is the usual reason a monitor's delivered count sits far below its matched count with no error anywhere; it is the freshness gate working as intended, not a failure or a plan limit, and retrying cannot recover the items. `ceiling_reached` is the field that indicates the daily cap was hit, and a stale withhold does not set it. When `suppressed_breakdown.resolved` is false the split does not add up to the total and `unresolved_reason` says why; `ceiling_reached` stays conservative in that case rather than being cleared. THOSE COUNTS COVER ONLY POSTS THAT WERE FETCHED. A post that was not fetched was not matched and leaves no row behind, so it is absent from all three counters; zeros there mean no matches were recorded, not that nothing was missed. `coverage_24h` is the separate field that speaks to fetching. Its `status` is `complete` (every poll reached the point where the previous poll finished), `degraded` (at least one poll was truncated and posts were lost unrecoverably; detail in `gaps[]`, `posts_in_window_at_least` and the estimated `posts_missed_estimate`), `partial` (nothing found, but not every kind of loss was checked; detail in `unobserved_events`), or `unknown` (the check could not be run at all; detail in `reason`). `unknown`, `partial` and a null count each mean the question went unanswered. `coverage_24h` is fed by the poll log and covers BOTH ways a poll loses posts unrecoverably (`listing_exhausted`, where Reddit stopped serving older posts, and `poll_overflow`, where the feed outran one poll's page budget); `observed_events` names what was actually checked, and a status of `complete` is awarded only when both were. WHAT `complete` ESTABLISHES: every poll that RAN got back to where the previous poll finished, AND every feed was actually polled. The second half comes from `stream_liveness`. A feed that is not polled writes nothing to the poll log, so on the poll log alone it looks identical to a healthy monitor; `stream_liveness` reads a different source (the polling registry plus the per-feed last-successful-poll stamp), neither of which a poll that did not run can produce. Its `status` is `live` (every feed checked within three times its own interval), `degraded` (at least one is not: `streams[]` marks each feed `never_polled`, `stalled` or `unregistered`), or `unknown` (could not be established, including `streams_awaiting_first_poll` on a monitor created moments ago, which clears itself). `coverage_24h` reads `complete` only while `stream_liveness` is `live`. A zero delivery count on a `never_polled` feed means nothing was checked, not a quiet subreddit. `gaps[]` IS A SAMPLE, NOT THE WHOLE LIST: it carries the most recent gaps only, `gaps_returned` says how many are in it, `gaps_truncated` says whether more exist, and `gap_events_24h` is the true total. `cadence` reports whether the monitor is served the interval its plan sells, which none of the fields above can. `promised_cadence_s` is the floor the account's CURRENT plan includes and `requested_cadence_s` is what this monitor is actually set to; `meets_entitlement` false means the monitor is set slower than the plan allows, which happens because a plan upgrade does not re-cadence monitors that already exist (setting `cadence_s` on the monitor changes it, and a deliberately slower cadence is also a legitimate choice). `last_checked_s_ago`, `freshness_ratio` and `within_margin` describe the slowest feed feeding this monitor, named in `slowest_stream`; `freshness_reading` marks them as ONE INSTANTANEOUS SAMPLE, not an average and not a sustained verdict, so a single reading past the margin is not by itself proof of under-service. These fields are TRI-STATE: a null `within_margin` or `meets_entitlement` means the question could not be answered, and `unknown_reason` says why.",
     shape: { ...MONITOR_ID },
   },
   {
     name: "reddit_monitor_deliveries",
     path: "/api/reddit/monitor/deliveries",
     description:
-      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). Answers 'what did I actually get sent', not just 'how many' (see reddit_monitor_health for counts). Every delivered item also carries `payload.items[].enrichment`: a `relevance.score` (0-1, how much of THIS monitor's own keyword criteria the item matched -- not a model's confidence), a `sentiment` (`polarity` -1 to 1 plus a positive/negative/mixed/neutral `label`), and an `intent.tag` (question, recommendation_request, complaint, promotion, praise, or discussion). All three are deterministic keyword/lexicon/rule heuristics computed at no extra cost -- each carries its own `method` field and NONE of them is a machine-learning or LLM call, so do not describe a score here as ML-derived. Omit `id` to aggregate history across every monitor you own.",
+      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). It records what was sent, not only how many (the counts are in monitor health). Every delivered item also carries `payload.items[].enrichment`: a `relevance.score` (0-1, how much of THIS monitor's own keyword criteria the item matched; not a model's confidence), a `sentiment` (`polarity` -1 to 1 plus a positive/negative/mixed/neutral `label`), and an `intent.tag` (question, recommendation_request, complaint, promotion, praise, or discussion). All three are deterministic keyword, lexicon and rule heuristics computed at no extra cost; each carries its own `method` field and none of them is a machine-learning or LLM call. Without `id`, the history aggregates across every monitor on the account.",
     shape: {
-      id: z.string().optional().describe("Narrow to one monitor's history. Omit to aggregate across every monitor you own."),
+      id: z.string().optional().describe("Narrows to one monitor's history. Absent, the history aggregates across every monitor on the account."),
       status: z.enum(["pending", "delivered", "failed", "dead", "suppressed"]).optional().describe(
-        "Filter to one delivery status. 'dead' = retries exhausted, gave up. 'suppressed' = matched but deliberately not sent, and `payload.suppressed.reason` says which of the two reasons applied: 'delivery_ceiling' (the monitor's daily cap) or 'stale_item' (the item was already older than the freshness window when we first saw it, so it was withheld rather than delivered as if it were new). A 'stale_item' row is NOT a fault and was NOT rejected by any plan limit, and retrying cannot recover it; `payload.suppressed` carries the age and the threshold. Omit for all statuses.",
+        "Filters to one delivery status. 'dead' = retries exhausted, gave up. 'suppressed' = matched but deliberately not sent, and `payload.suppressed.reason` says which of the two reasons applied: 'delivery_ceiling' (the monitor's daily cap) or 'stale_item' (the item was already older than the freshness window when first seen, so it was withheld rather than delivered as if it were new). A 'stale_item' row is NOT a fault and was NOT rejected by any plan limit, and retrying cannot recover it; `payload.suppressed` carries the age and the threshold. Absent, every status is returned.",
       ),
-      limit: z.number().int().min(1).max(200).optional().describe("Max rows to return, 1 to 200. Default 50."),
-      before: z.string().optional().describe("ISO 8601 timestamp cursor for pagination -- pass the `created_at` of the oldest row from the previous page to fetch older deliveries."),
+      limit: z.number().int().min(1).max(200).optional().describe("Maximum rows returned, 1 to 200. Default 50."),
+      before: z.string().optional().describe("ISO 8601 timestamp cursor for pagination: the `created_at` of the oldest row from the previous page returns older deliveries."),
     },
   },
   {
@@ -699,18 +693,18 @@ export const TOOLS = [
     method: "POST",
     write: true,
     description:
-      "Register a delivery target for monitors to send matches to. Requires an active monitoring plan (a webhook with no plan could never receive anything). Returns the webhook with its signing `secret` SHOWN ONCE -- store it immediately, it is never returned again by reddit_monitor_webhook_list. HTTPS only; the URL is re-validated (including a fresh DNS check) at every delivery, not just at creation.",
+      "Registers a delivery target for monitors to send matches to. Requires an active monitoring plan (a webhook with no plan could not receive anything). Returns the webhook with its signing `secret` SHOWN ONCE: the webhook list does not return it again. HTTPS only; the URL is re-validated (including a fresh DNS check) at every delivery, not just at creation.",
     shape: {
-      url: z.string().url().describe("HTTPS URL to deliver matches to. Must be publicly reachable HTTPS, no embedded credentials, no loopback/private/link-local address."),
+      url: z.string().url().describe("HTTPS URL that receives matches. Accepted: a publicly reachable HTTPS URL with no embedded credentials and no loopback, private or link-local address."),
       kind: z.enum(["webhook", "slack", "discord", "email"]).optional().describe(
-        "Payload shape to send. PREFER OMITTING THIS: for a hooks.slack.com or discord.com/api/webhooks URL the kind is inferred from the host, and the response reports what it inferred in `kind_inferred_from`. 'slack'/'discord' format as native incoming-webhook messages; 'webhook' sends redditapis' generic signed JSON envelope and is the fallback only for a host we do not recognise; 'email' is not yet a real delivery transport. Passing 'webhook' for a Slack or Discord URL does NOT force the generic envelope (that combination can never deliver -- Slack answers 400 invalid_payload); the host wins and `kind_corrected_from` says so. Passing one SPECIFIC kind for a different platform's host (e.g. 'discord' with a hooks.slack.com URL) is refused with `webhook_kind_mismatch` (400) rather than stored.",
+        "Payload shape. Absent, the kind is inferred from the host for a hooks.slack.com or discord.com/api/webhooks URL, and the response reports the inference in `kind_inferred_from`. 'slack'/'discord' format as native incoming-webhook messages; 'webhook' sends the generic signed JSON envelope and is the fallback for an unrecognised host; 'email' is not yet a real delivery transport. 'webhook' with a Slack or Discord URL does NOT force the generic envelope (that combination cannot deliver: Slack answers 400 invalid_payload); the host wins and `kind_corrected_from` says so. A SPECIFIC kind for a different platform's host (e.g. 'discord' with a hooks.slack.com URL) is refused with `webhook_kind_mismatch` (400) rather than stored.",
       ),
     },
   },
   {
     name: "reddit_monitor_webhook_list",
     path: "/api/reddit/monitor/webhook/list",
-    description: "List every webhook registered on the caller's account. Never returns the signing secret (shown once, at creation, by reddit_monitor_webhook_create).",
+    description: "Lists every webhook registered on the caller's account. The signing secret is not included; it is shown once, at creation.",
     shape: {},
   },
   {
@@ -719,7 +713,7 @@ export const TOOLS = [
     method: "POST",
     write: true,
     description:
-      "Send a one-off test delivery to a registered webhook (rate-limited to 10/min) so you can confirm it's wired up correctly before waiting for a real match. Uses the webhook's `kind` to format the test payload the same way a real delivery would. On failure the response carries `reason` and `status` plus TWO fields that say what to actually do: `hint`, our sentence naming the fix (most often that the target's `kind` does not match its host, which no test can succeed through), and `detail`, a bounded, sanitised copy of what the destination itself replied. Report `hint` to the user rather than the bare `reason` -- `http_error` with a 400 names no field, no value and no remedy. Returns 404 `webhook_not_found` if the id does not exist or is not yours, or `webhook_url_rejected` if the URL fails re-validation (e.g. now resolves to a private address).",
+      "Sends a one-off test delivery to a registered webhook (rate-limited to 10/min), confirming it is wired up correctly before a real match arrives. The test payload is formatted by the webhook's `kind`, the same way a real delivery would be. On failure the response carries `reason` and `status`, plus `hint`, a sentence naming the fix (most often that the target's `kind` does not match its host, which no test can succeed through), and `detail`, a bounded, sanitised copy of what the destination itself replied. `hint` carries the remedy; a bare `reason` such as `http_error` with a 400 names no field, no value and no remedy. Returns 404 `webhook_not_found` if the id does not exist or is not on this account, or `webhook_url_rejected` if the URL fails re-validation (e.g. now resolves to a private address).",
     shape: { ...WEBHOOK_ID },
   },
   {
@@ -729,7 +723,7 @@ export const TOOLS = [
     write: true,
     destructive: true,
     description:
-      "Permanently delete a webhook. Any monitor still pointing at it will fail to deliver until repointed at a different webhook -- this does NOT cascade-delete or pause the monitors using it. Cannot be undone. Returns 404 `webhook_not_found` if the id does not exist or is not yours.",
+      "Permanently deletes a webhook. A monitor still pointing at it fails to deliver until it is repointed at a different webhook: deletion does NOT cascade-delete or pause the monitors using it. Cannot be undone. Returns 404 `webhook_not_found` if the id does not exist or is not on this account.",
     shape: { ...WEBHOOK_ID },
   },
 
@@ -743,28 +737,28 @@ export const TOOLS = [
     local: "feedback",
     localArgs: ["action", "ids"],
     description:
-      "Report a product problem or gap in redditapis.com to its team from inside this session, the way Claude Code's own feedback tool works: a report is DRAFTED to a local queue first (action \"draft\", the default) and SENT only after the user reviews it. Drafting sends nothing, needs no confirmation, and should not be announced mid-task. WHEN TO DRAFT, only at high-signal moments: a redditapis tool call failed with an error that was not a missing key (401), credits (402) or a rate limit (429), and the user had to work around it; the user asked for something no redditapis tool covers; a documented field came back empty or wrong; the user was clearly frustrated with a result. One draft per distinct issue, never twice for the same one. FORMAT for details, four labelled bullets in this order: 'What happened:' observed vs expected, exact error text if short. 'What the user said:' quoted verbatim, or 'user did not comment'. 'Repro:' the minimal call that reproduces it. 'Evidence:' tool name, endpoint, HTTP status, request id (the last failing call is attached automatically where you leave a gap). Facts only: no guessing, no API keys or secrets, no personal names. REVIEW: when the user asks to see or send feedback, call action \"list\", then action \"send\" with ONLY the draft ids the user named in their own message, or action \"discard\". Sending posts each draft to POST /feedback (free, not metered) and returns a server id that reddit_feedback_get can check later.",
+      "Reports a product problem or gap in redditapis.com to its team, through a local draft queue. action \"draft\" (the default) writes a report to a queue on this machine and sends nothing; it makes no network call. action \"list\" returns the pending drafts with their ids. action \"send\" posts the named draft ids to POST /feedback (free, not metered) and returns a server id per report. action \"discard\" drops the named drafts. The queue holds at most 10 drafts; a draft past that is refused. A draft takes `type`, a one-line `title` (at most 120 characters), `details` (at most 8000 characters) and optional `area` and `evidence`; evidence keys left out (tool, endpoint, HTTP status, request id) are filled from the last failing call in this session, and the MCP version and client name are attached to every report.",
     shape: {
       action: z.enum(["draft", "list", "send", "discard"]).optional().describe(
-        "What to do. \"draft\" (default) queues a new report locally and sends nothing. \"list\" shows the pending drafts with their ids. \"send\" posts the drafts named in ids to redditapis.com; use it only for ids the user named. \"discard\" drops the drafts named in ids.",
+        "\"draft\" (default) queues a new report locally and sends nothing. \"list\" returns the pending drafts with their ids. \"send\" posts the drafts named in `ids` to redditapis.com. \"discard\" drops the drafts named in `ids`.",
       ),
       type: z.enum(["bug", "idea", "missing_capability"]).optional().describe(
-        "Required for a draft. \"bug\": a tool or endpoint misbehaved. \"idea\": a change that would have made the task easier. \"missing_capability\": the user needed something no tool provides.",
+        "Required for a draft. \"bug\": a tool or endpoint misbehaved. \"idea\": a change that would have made the task easier. \"missing_capability\": a needed capability that no tool provides.",
       ),
       title: z.string().max(120).optional().describe(
-        "Required for a draft. One specific line, at most 120 characters, naming the tool or endpoint and the defect, e.g. \"reddit_post_comments returns 502 when the post is deleted\".",
+        "Required for a draft. One line, at most 120 characters, naming the tool or endpoint and the defect, e.g. \"GET /api/reddit/comments returns 502 when the post is deleted\".",
       ),
       details: z.string().max(8000).optional().describe(
-        "Required for a draft. At most 8000 characters, four labelled bullets in order: What happened, What the user said (verbatim), Repro, Evidence.",
+        "Required for a draft. Free text, at most 8000 characters.",
       ),
       area: z.string().max(80).optional().describe(
         "Optional. The endpoint or feature the report is about, e.g. \"posts/comments\" or \"monitoring\". At most 80 characters.",
       ),
       evidence: z.record(z.string(), z.unknown()).optional().describe(
-        "Optional identifiers only, never payloads: {tool, endpoint, status, request_id}. Whatever you leave out is filled from the last failing call in this session; mcp_version and client are always attached.",
+        "Optional identifiers, {tool, endpoint, status, request_id}, at most 4096 bytes serialized. Keys left out are filled from the last failing call in this session; mcp_version and client are attached to every report.",
       ),
       ids: z.array(z.string()).optional().describe(
-        "For action \"send\" or \"discard\": the draft ids to act on, exactly as shown by action \"list\" and named by the user.",
+        "For action \"send\" or \"discard\": the draft ids to act on, as returned by action \"list\".",
       ),
     },
   },
@@ -772,19 +766,19 @@ export const TOOLS = [
     name: "reddit_feedback_list",
     path: "/feedback",
     description:
-      "List the feedback reports this account has sent, newest first, with each one's current status. Use it to RECOVER A LOST ID: the server id is returned only once, when a report is sent, so this is the way back to a report whose id was not kept. Also the way to answer \"did that report actually land\" and \"has the team looked at it yet\". Optionally filter by status or type, and page with the cursor from a previous response. Free per call, never metered. Returns {feedback: [...], count, limit, next_cursor}; page by passing next_cursor back as cursor until it is null; an account that has filed nothing gets an empty list and a 200, not an error. Note this lists SENT reports on the server, which is different from reddit_feedback_send action=\"list\", which shows unsent local drafts on this machine.",
+      "Lists the feedback reports this account has sent, newest first, with each one's current status. The server id is returned only once, when a report is sent, so this listing is how a report whose id was not kept is found again; it also shows whether a report landed and whether the team has acted on it. Optional filters by status or type; paging uses the cursor from a previous response. Free per call, not metered. Returns {feedback: [...], count, limit, next_cursor}; pages continue while next_cursor is non-null, and an account that has filed nothing gets an empty list and a 200, not an error. It lists SENT reports on the server, which differ from the unsent local drafts on this machine.",
     shape: {
       status: z.enum(["new", "triaged", "shipped", "declined"]).optional().describe(
-        "Optional. Show only reports in this state. Omit for all of them.",
+        "Optional. Restricts the list to reports in this state; absent, every state.",
       ),
       type: z.enum(["bug", "idea", "missing_capability"]).optional().describe(
-        "Optional. Show only reports of this kind. Omit for all of them.",
+        "Optional. Restricts the list to reports of this kind; absent, every kind.",
       ),
       cursor: z.string().optional().describe(
-        "Optional. The next_cursor from a previous response, to fetch the page after it. Keyset paging on (created_at, id), so a report filed while you page cannot make a row repeat or be skipped. A cursor this endpoint did not issue is a 400, never an empty page.",
+        "Optional. The next_cursor from a previous response, for the page after it. Keyset paging on (created_at, id), so a report filed during paging cannot make a row repeat or be skipped. A cursor this endpoint did not issue is a 400, not an empty page.",
       ),
       limit: z.number().int().min(1).max(100).optional().describe(
-        "Optional. How many to return, 1 to 100 (default 25). Newest first.",
+        "Optional. How many are returned, 1 to 100 (default 25). Newest first.",
       ),
     },
   },
@@ -805,17 +799,17 @@ export const TOOLS = [
     name: "reddit_account_me",
     path: "/account/me",
     description:
-      "How much credit this API key has left, before spending any. Returns the account's remaining credit balance and usage totals. FREE: this call is not metered and never costs a credit, so call it whenever you are about to run something expensive rather than guessing. Use it to decide whether a planned batch fits in the remaining balance, and to tell the user how much is left if a call returns 402. A 402 from any other tool means the balance is exhausted; its response carries a top-up URL to give the user.",
+      "Returns the remaining credit balance and usage totals of the account behind this API key. Free: not metered, and costs no credit. A 402 from a metered call means the balance is exhausted; that response carries a top-up URL.",
     shape: {},
   },
   {
     name: "reddit_feedback_get",
     path: "/feedback/{id}",
     description:
-      "Check the status of a feedback report this account sent earlier (the server id returned by reddit_feedback_send action \"send\"): status new, triaged, shipped or declined, the team's response text if any, and updated_at, which moves only when the team acts on it. Free per call. 404 if the id is not on this account.",
+      "Returns the status of a feedback report this account sent earlier, by its server id: status new, triaged, shipped or declined, the team's response text if any, and updated_at, which moves only when the team acts on it. Free per call. 404 if the id is not on this account.",
     shape: {
       id: z.string().min(1).describe(
-        "The server id of a sent report, as returned by reddit_feedback_send action \"send\" (a UUID). Not a local draft id.",
+        "The server id of a sent report (a UUID), as returned when the report was sent. Not a local draft id.",
       ),
     },
   },
@@ -845,6 +839,26 @@ export const SESSION_ARG_TO_HEADER = {
   pc: "x-reddit-pc",
   proxy: "x-reddit-proxy",
 };
+
+// ── inline credentials ──────────────────────────────────────────────────────
+//
+// A tool takes INLINE CREDENTIALS when its input schema has an argument that
+// carries the caller's own Reddit session: a cookie, a token, or the proxy the
+// session egresses through (proxy URLs embed user:pass). createServer leaves
+// such tools unregistered when built with inlineCredentials:false, the mode a
+// remote host uses so a connected app never pipes a Reddit session through it.
+//
+// Two tests, either one hides a tool, so the check fails CLOSED: the exact arg
+// names the header transport knows, and a name pattern that catches a future
+// credential-shaped argument added without updating that map.
+export const CREDENTIAL_ARGS = Object.freeze(Object.keys(SESSION_ARG_TO_HEADER));
+// Matched on whole underscore-separated words, so `author` or `max_authors` is not
+// mistaken for `auth`.
+const CREDENTIAL_NAME = /(^|_)(cookies?|session|token|password|passwd|secret|credentials?|csrf|loid|proxy|auth|authorization|bearer|api_key|apikey)(_|$)/i;
+
+export function takesInlineCredentials(tool) {
+  return Object.keys(tool?.shape || {}).some((k) => CREDENTIAL_ARGS.includes(k) || CREDENTIAL_NAME.test(k));
+}
 
 /**
  * Split a tool's args into headers and everything else.
