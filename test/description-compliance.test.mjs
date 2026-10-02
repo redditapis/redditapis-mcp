@@ -67,6 +67,11 @@ export const INSTRUCTION_PATTERNS = [
   [/\bsystem prompt\b/i, "system prompt"],
   [/\bignore (all|any|previous|prior)\b/i, "ignore previous"],
   [/\buse (it|this|for|to|when|after|before)\b/i, "use it/this/for/to (usage steering)"],
+  // Review 2026-10-02: phrasings the first list let through.
+  [/\b(first|then) call\b/i, "first/then call"],
+  [/\bif asked\b/i, "if asked"],
+  [/\brecommended\b/i, "recommended"],
+  [/\bbest (used )?for\b/i, "best (used) for"],
 ];
 
 // Sentence-initial imperatives addressed to the caller. A description that
@@ -78,6 +83,7 @@ const IMPERATIVE_OPENERS = [
   "resupply", "prefer", "avoid", "remember", "ensure", "try", "ask", "tell",
   "confirm", "announce", "give", "re-run", "rerun", "retry", "paginate",
   "quote", "scope", "split", "widen", "pair", "count", "narrow", "check",
+  "see", "follow", "fetch", "stop", "wait", "consult",
 ];
 const OPENER_RE = new RegExp(`(^|[.!?;:]\\s+|\\n\\s*)(${IMPERATIVE_OPENERS.join("|")})\\b`, "i");
 
@@ -209,7 +215,12 @@ if (direct) {
     /re-run the call with a distinctive value that could only match if the parameter was honoured/,
     /listing_status/,
     /stream_liveness/,
+    /never send a draft unless the user names it/,
+    /identifiers only, never payloads, secrets or personal names/,
   ]) assert.match(instructions, needle, `server instructions lost guidance matching ${needle}`);
+  // The consent rule must survive a client that truncates: it sits early in the feedback text.
+  assert.ok(instructions.indexOf("never send a draft") < instructions.indexOf("Draft with reddit_feedback_send"),
+    "the send-consent clause must come before the drafting guidance");
   // The instructions themselves carry no hidden or encoded text either.
   assert.ok(!HIDDEN_CHARS.test(instructions), "server instructions carry a hidden character");
   // A conservative budget: some clients cap server instructions near 2 KB.

@@ -296,7 +296,7 @@ check("reddit_search steers away from site-wide sort=top on generic queries (mea
   // compliance rule keeps out of descriptions, so it lives in the server
   // instructions. Both halves are pinned, each where it now lives.
   assert.match(t.description, /Best match then highest score comes from sort='relevance' with a large `limit`, where sort_type='score' re-orders that returned page/, "description must carry the page-local relevance+sort_type=score fact");
-  assert.match(STEERING_INSTRUCTIONS, /fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page/, "server instructions must carry the relevance+sort_type=score steering");
+  assert.match(STEERING_INSTRUCTIONS, /sort='relevance' with a large `limit` for best matches; sort_type='score' re-orders that page/, "server instructions must carry the relevance+sort_type=score steering");
   assert.match(t.shape.sort_type.description, /page-local/i, "sort_type must say it re-orders only the returned page");
   // The sort enum is SHARED by four search tools and only reddit_search accepts
   // sort_type, so the enum text must steer without naming a parameter three of

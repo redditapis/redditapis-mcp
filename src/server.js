@@ -164,7 +164,7 @@ export function buildInstructions({ inlineCredentials = true } = {}) {
 const INSTRUCTIONS_HEAD =
   "redditapis.com MCP server. Read tools cost credits per call (most $0.002); monitor, webhook and feedback tools are free. " +
   "reddit_account_me shows the balance for free before a large batch; on a 402, give the user the error's top-up URL. " +
-  "For best match then highest score in reddit_search, fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page, or quote the phrase, or scope with `subreddit`. " +
+  "reddit_search: sort='relevance' with a large `limit` for best matches; sort_type='score' re-orders that page; a quoted phrase or `subreddit` narrows it. " +
   "reddit_deep_comment_search returns matching comments; reddit_search_comments only their posts. " +
   "reddit_search_communities searches subreddits; reddit_subreddits_popular/new/default browse them. ";
 
@@ -173,10 +173,10 @@ const INSTRUCTIONS_TAIL =
   "In monitor health read stream_liveness, then coverage_24h; unknown, partial or null is unanswered, not healthy. " +
   "reddit_monitor_deliveries shows where a monitor's matches went. " +
   "A monitor update replaces the whole filter, so resupply subreddit and kind. On a failed webhook test, relay its `hint`. " +
-  "Draft a report with reddit_feedback_send (action \"draft\") when a call fails with an error other than 401/402/429 and the user has to work around it, " +
-  "the user asks for something no tool covers, a documented field comes back empty or wrong, or the user is frustrated: " +
-  "one per issue, not announced mid-task, details as four bullets (What happened, What the user said verbatim, Repro, Evidence). " +
-  "Drafting is local and silent; never send a draft unless the user names it after reviewing action \"list\". " +
+  "Feedback: never send a draft unless the user names it after reviewing action \"list\"; drafting is local and silent. " +
+  "Draft with reddit_feedback_send (action \"draft\") when a call fails other than 401/402/429 and the user works around it, " +
+  "no tool covers the ask, a documented field is empty or wrong, or the user is frustrated: one per issue, not announced mid-task, " +
+  "four bullets (What happened, What the user said verbatim, Repro, Evidence), identifiers only, never payloads, secrets or personal names. " +
   "Before drafting a report that a parameter is IGNORED or a field is EMPTY, re-run the call with a distinctive value that could only match if the parameter was honoured, and with the phrase quoted; " +
   "if either comes back on topic the issue is ranking or matching, so title it that way and say what the control showed.";
 
@@ -218,6 +218,11 @@ export function createServer({
   retryDelaysMs = [3000, 8000],
   inlineCredentials = true,
 } = {}) {
+  // A STRING "false" from an environment variable must not silently leave the
+  // cookie tools exposed on a hosted server (review 2026-10-02): booleans only.
+  if (typeof inlineCredentials !== "boolean") {
+    throw new TypeError(`inlineCredentials must be a boolean, got ${typeof inlineCredentials}`);
+  }
   const BASE_URL = String(baseUrl).replace(/\/+$/, "");
   const REQUEST_TIMEOUT_MS = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
 

@@ -2,6 +2,14 @@
 
 ## 0.9.0 (2026-10-02)
 
+### Fixed
+
+- **reddit_post_visibility works again.** Its path was written
+  `/api/reddit/post/:id/visibility`, which the client's path builder does not
+  fill, so every call sent a literal `:id` and was refused with HTTP 400 (it
+  had been broken since the tool shipped). It is now `{id}`, and a test fails
+  if any tool path carries an unfillable `:param`.
+
 ### Changed
 
 - **Tool descriptions state product facts only; guidance moved to the server

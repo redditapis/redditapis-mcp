@@ -91,6 +91,21 @@ const { findings } = auditCatalog(hosted.tools);
 assert.deepEqual(findings, [], `hosted catalog description findings: ${JSON.stringify(findings).slice(0, 300)}`);
 ok("the hosted catalog passes the description-compliance checks");
 
+// 6. Only a real boolean is accepted: a string "false" from an environment
+// variable must throw rather than silently leave the cookie tools exposed.
+for (const bad of ["false", 0, null, "no"]) {
+  assert.throws(() => createServer({ apiKey: "k", inlineCredentials: bad }), TypeError,
+    `inlineCredentials=${JSON.stringify(bad)} must throw`);
+}
+ok("a non-boolean inlineCredentials throws instead of exposing the cookie tools");
+
+// 7. Every tool path is fillable by buildPath: no Express-style ':param'
+// (reddit_post_visibility shipped '/post/:id/visibility' and 400'd on every call).
+const { TOOLS } = await import("../src/tools.js");
+const unfillable = TOOLS.filter((t) => /\/:[A-Za-z_]/.test(String(t.path || ""))).map((t) => `${t.name} ${t.path}`);
+assert.deepEqual(unfillable, [], `tool paths with an unfillable :param: ${unfillable.join(", ")}`);
+ok(`all ${TOOLS.length} tool paths use {param} placeholders buildPath can fill`);
+
 await full.client.close();
 await hosted.client.close();
 console.log(`\ninline-credentials: ${n} passed, 0 failed`);
