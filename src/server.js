@@ -12,7 +12,7 @@
 
 import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { TOOLS, buildQuery, buildPath, buildBody, buildHeaders } from "./tools.js";
+import { TOOLS, buildQuery, buildPath, buildBody, buildHeaders, takesInlineCredentials } from "./tools.js";
 import { createFeedbackHandler, sameFailure } from "./feedback.js";
 
 // Read from package.json rather than a hand-maintained literal -- this drifted
@@ -137,14 +137,50 @@ export function hintFor(status, path) {
 }
 
 // Standing instructions the client hands its model alongside the tool list.
-// This is the trigger list for feedback, in the place a model actually reads.
-export const INSTRUCTIONS =
+//
+// THIS IS THE ONLY PLACE GUIDANCE LIVES (0.9.0). Tool and parameter
+// descriptions state product facts only: what a tool returns, its inputs, its
+// cost, its errors. Which tool to use when, how to read a partial answer, how
+// to get a Reddit session and the feedback policy are model guidance, and the
+// protocol's place for that is the server instructions, so it is here and
+// nowhere else. test/description-compliance.test.mjs fails if a description
+// names another tool or instructs the model, and checks that this text still
+// carries the guidance that moved. Kept within 2048 characters: Claude Code
+// 2.1.287 truncates server instructions past that (its default
+// CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH, read from the binary 2026-10-02).
+//
+// THE SESSION SENTENCE IS CONDITIONAL. It names the five tools that take the
+// caller's Reddit cookies; a server built with inlineCredentials:false does not
+// register them, and instructions that point at a tool the client cannot see
+// would send the model looking for it. buildInstructions drops that sentence
+// in that mode; INSTRUCTIONS is the default (local, all tools) text.
+const SESSION_SENTENCE =
+  "reddit_home_feed and reddit_user_upvoted/saved/hidden/gilded need the user's own Reddit cookies (reddit_session, loid) from POST /api/reddit/login on the REST API, not an MCP tool. ";
+
+export function buildInstructions({ inlineCredentials = true } = {}) {
+  return INSTRUCTIONS_HEAD + (inlineCredentials ? SESSION_SENTENCE : "") + INSTRUCTIONS_TAIL;
+}
+
+const INSTRUCTIONS_HEAD =
   "redditapis.com MCP server. Read tools cost credits per call (most $0.002); monitor, webhook and feedback tools are free. " +
-  "If a redditapis tool call fails with an error other than 401/402/429 and the user has to work around it, if the user asks for something no redditapis tool covers, " +
-  "if a documented field comes back empty or wrong, or if the user is clearly frustrated with a result, draft a report with reddit_feedback_send (action \"draft\"). " +
+  "reddit_account_me shows the balance for free before a large batch; on a 402, give the user the error's top-up URL. " +
+  "For best match then highest score in reddit_search, fetch with sort='relevance' and a large `limit`, then sort_type='score' re-orders that returned page, or quote the phrase, or scope with `subreddit`. " +
+  "reddit_deep_comment_search returns matching comments; reddit_search_comments only their posts. " +
+  "reddit_search_communities searches subreddits; reddit_subreddits_popular/new/default browse them. ";
+
+const INSTRUCTIONS_TAIL =
+  "A null `after` with listing_status truncated or unknown is a partial answer: say so and widen the sort, timeframe or query. " +
+  "In monitor health read stream_liveness, then coverage_24h; unknown, partial or null is unanswered, not healthy. " +
+  "reddit_monitor_deliveries shows where a monitor's matches went. " +
+  "A monitor update replaces the whole filter, so resupply subreddit and kind. On a failed webhook test, relay its `hint`. " +
+  "Draft a report with reddit_feedback_send (action \"draft\") when a call fails with an error other than 401/402/429 and the user has to work around it, " +
+  "the user asks for something no tool covers, a documented field comes back empty or wrong, or the user is frustrated: " +
+  "one per issue, not announced mid-task, details as four bullets (What happened, What the user said verbatim, Repro, Evidence). " +
   "Drafting is local and silent; never send a draft unless the user names it after reviewing action \"list\". " +
   "Before drafting a report that a parameter is IGNORED or a field is EMPTY, re-run the call with a distinctive value that could only match if the parameter was honoured, and with the phrase quoted; " +
   "if either comes back on topic the issue is ranking or matching, so title it that way and say what the control showed.";
+
+export const INSTRUCTIONS = buildInstructions({ inlineCredentials: true });
 
 /**
  * Build one server for one caller.
@@ -165,6 +201,11 @@ export const INSTRUCTIONS =
  * @param {(ms:number)=>Promise<void>} [opts.sleepImpl] injectable for tests
  * @param {number[]} [opts.retryDelaysMs] waits before each retry of a read that
  *        hit a gateway failure (an API restart); default [3000, 8000]
+ * @param {boolean} [opts.inlineCredentials] default true. false leaves every
+ *        tool whose input schema takes the caller's Reddit cookies or session
+ *        proxy (takesInlineCredentials in tools.js) UNREGISTERED, and drops the
+ *        instructions sentence that names them. A remote host passes false so a
+ *        connected app is never asked to send a Reddit session through it.
  */
 export function createServer({
   apiKey,
@@ -175,6 +216,7 @@ export function createServer({
   authHeaders = null,
   sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms)),
   retryDelaysMs = [3000, 8000],
+  inlineCredentials = true,
 } = {}) {
   const BASE_URL = String(baseUrl).replace(/\/+$/, "");
   const REQUEST_TIMEOUT_MS = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
@@ -293,7 +335,10 @@ export function createServer({
     }
   }
 
-  const server = new McpServer({ name: "redditapis", version: VERSION }, { instructions: INSTRUCTIONS });
+  const server = new McpServer(
+    { name: "redditapis", version: VERSION },
+    { instructions: buildInstructions({ inlineCredentials: inlineCredentials !== false }) },
+  );
 
   // Handlers for tools that carry local: "<name>" in the catalog. A name the
   // catalog uses and this map lacks is a boot-time failure, never a silent
@@ -309,6 +354,9 @@ export function createServer({
   };
 
   for (const tool of TOOLS) {
+    // Filtered at registration, so a hidden tool is absent from tools/list and
+    // a tools/call naming it fails as an unknown tool, never reaching the API.
+    if (inlineCredentials === false && takesInlineCredentials(tool)) continue;
     const method = tool.method || "GET";
     const annotations = {
       title: tool.name,

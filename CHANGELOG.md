@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.9.0 (2026-10-02)
+
+### Changed
+
+- **Tool descriptions state product facts only; guidance moved to the server
+  instructions.** Every tool and parameter description now says what the tool
+  returns, what it takes, what it costs and what its errors mean, and nothing
+  else: no instructions to the model, no names of other tools, no hidden or
+  encoded text. That is the rule the Claude connector directory's compliance
+  attestation sets for tool descriptions. The guidance that was spread across
+  them (which search or listing tool fits which question, how to get the Reddit
+  session the home feed and the four private listings need, how to read a
+  partial listing or a monitor's health, what a monitor update replaces, and
+  the feedback drafting policy) now lives once in the server instructions,
+  which every MCP client hands its model with the tool list. Tool names, input
+  schemas, annotations and behaviour are unchanged. Measured with the new gate
+  on 0.8.1: 24 of 44 tools named another `reddit_*` token and every tool
+  carried at least one instruction-shaped phrase (most through shared
+  parameter text such as the pagination cursor); on 0.9.0 both are zero.
+
+### Added
+
+- **`createServer({ inlineCredentials: false })` for remote hosts.** The
+  default stays `true`, so a local `npx` install sees no change. With `false`,
+  every tool whose input takes the caller's Reddit cookies or session proxy is
+  not registered: `reddit_home_feed`, `reddit_user_upvoted`,
+  `reddit_user_saved`, `reddit_user_hidden` and `reddit_user_gilded`. They are
+  absent from `tools/list`, a call naming one fails without reaching the API,
+  and the server instructions drop the sentence that points at them. The test
+  is `takesInlineCredentials` in `src/tools.js`, which matches the known cookie
+  arguments and any credential-shaped argument name, so a future cookie
+  argument is hidden by default. `test/inline-credentials.test.mjs` proves the
+  hosted listing has zero such tools while the default keeps all five.
+- **`test/description-compliance.test.mjs`, part of `npm test`.** It lists the
+  catalog the way a client receives it (`createServer` plus an in-memory MCP
+  client) and fails if any tool or parameter description names another tool,
+  matches a model-instruction pattern (should, do not, never, always, must,
+  use ... instead, second person, sentence-initial imperatives and similar), or
+  carries zero-width, bidi, tag or control characters or a base64- or
+  hex-looking run. It also checks that the server instructions still carry the
+  guidance that moved and stay within 2048 characters. Planted defects for all
+  three checks are asserted in the same run, so a matcher that stops catching
+  them fails rather than reporting a clean catalog.
+
 ## 0.8.1 (2026-09-30)
 
 ### Fixed
