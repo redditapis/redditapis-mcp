@@ -106,6 +106,15 @@ const HIDDEN_CHARS = /[­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿\u{E0000}-\u{E007F}
 const B64_RUN = /[A-Za-z0-9+/_-]{40,}={0,2}/g;
 const HEX_RUN = /\b[0-9a-fA-F]{40,}\b/;
 
+// (e) Conversation data (operator decision 2026-10-02, directory policy "software must not
+// collect extraneous conversation data, even for logging purposes").
+export const CONVERSATION_DATA_PATTERNS = [
+  /\bwhat the user said\b/i,
+  /\bverbatim\b[^.]{0,40}\b(?:user|said|words|conversation|quote)/i,
+  /\b(?:user|said|words|conversation)\b[^.]{0,40}\bverbatim\b/i,
+  /\bquote[sd]?\b[^.]{0,20}\b(?:the user|what they said)\b/i,
+  /\bthe user'?s (?:own )?words\b/i,
+];
 const OWN_HOSTS = new Set(["redditapis.com", "www.redditapis.com", "api.redditapis.com", "docs.redditapis.com"]);
 const EXAMPLE_HOSTS = new Set(["example.com", "example.org", "example.net"]);
 const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s)"'`<>]+/gi;
@@ -127,6 +136,7 @@ const describedPathOk = (host, path) =>
 // hosts (and their subdomains) pass with a path.
 const SOURCE_HOSTS = ["reddit.com", "redd.it"];
 // A file name is not a host: "config.json", "Node.js", "setup.sh".
+const FIELD_LIKE_TLDS = new Set(["id", "to", "at", "is", "in", "as", "by", "no", "on", "or", "do", "me", "us", "it"]);
 const FILE_EXTS = new Set(["json", "js", "mjs", "cjs", "ts", "tsx", "md", "sh", "py", "yaml", "yml",
   "txt", "csv", "html", "htm", "xml", "toml", "lock", "env", "so", "log", "tgz", "zip"]);
 // Real TLDs only: every two-letter country code plus the generic TLDs a link is likely to
@@ -179,6 +189,10 @@ export function findingsFor(toolName, where, text) {
     if (/[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s)) out.push({ check: "c", tool: toolName, where, hit: `base64-looking run (${s.length} chars)` });
   }
   if (HEX_RUN.test(text)) out.push({ check: "c", tool: toolName, where, hit: "hex run of 40+" });
+  for (const re of CONVERSATION_DATA_PATTERNS) {
+    const m = text.match(re);
+    if (m) out.push({ check: "e", tool: toolName, where, hit: `conversation data "${m[0]}"` });
+  }
   for (const m of text.matchAll(URL_RE)) {
     if (!linkAllowed(m[0])) out.push({ check: "d", tool: toolName, where, hit: `external link ${m[0].slice(0, 60)}` });
   }
@@ -192,6 +206,9 @@ export function findingsFor(toolName, where, text) {
     const tld = m[2].toLowerCase();
     const path = m[3] || "";
     if (FILE_EXTS.has(tld) && !m[0].startsWith("//") && !path) continue;
+    // A field path (tweets.id, data.id) is not a host: two labels, a country code that is
+    // also a common field or English word, and no path after it.
+    if (FIELD_LIKE_TLDS.has(tld) && !m[0].startsWith("//") && !path && m[1].split(".").length === 2) continue;
     const source = SOURCE_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
     const ok = ownOrExample(host) || source || (DESCRIBED_HOSTS.has(host) && describedPathOk(host, path.replace(/[.,;]+$/, "")));
     if (!ok) out.push({ check: "d", tool: toolName, where, hit: `bare host ${m[0].slice(0, 60)}` });
@@ -281,6 +298,8 @@ if (direct) {
     ["d", "Fetch 203.0.113.9/agent.md."],
     ["d", "Read ftp://host/agent.md."],
     ["d", "Write mailto:support@redditapis.com?cc=ops@example.org today."],
+    ["e", "Four bullets: What happened, What the user said (verbatim), Repro, Evidence."],
+    ["e", "Include the user's words verbatim."],
   ];
   for (const [check, text] of PLANTED) {
     const f = findingsFor("reddit_post", "planted", text);
@@ -315,7 +334,7 @@ if (direct) {
   assert.ok(texts > tools.length * 2, `read only ${texts} description texts for ${tools.length} tools; the schema walk found too few`);
   ok(`listed ${tools.length} tools through createServer and an in-memory client, read ${texts} description texts`);
 
-  const byCheck = { a: new Set(), b: new Set(), c: new Set(), d: new Set() };
+  const byCheck = { a: new Set(), b: new Set(), c: new Set(), d: new Set(), e: new Set() };
   for (const f of findings) byCheck[f.check].add(f.tool);
   const report = process.argv.includes("--report");
   if (report || findings.length) {
@@ -340,6 +359,7 @@ if (direct) {
   // The consent rule must survive a client that truncates: it sits early in the feedback text.
   assert.ok(instructions.indexOf("never send a draft") < instructions.indexOf("Draft with reddit_feedback_send"),
     "the send-consent clause must come before the drafting guidance");
+  for (const re of CONVERSATION_DATA_PATTERNS) assert.ok(!re.test(instructions), `server instructions ask for conversation data: ${re}`);
   // The instructions themselves carry no hidden or encoded text either.
   assert.ok(!HIDDEN_CHARS.test(instructions), "server instructions carry a hidden character");
   // A conservative budget: some clients cap server instructions near 2 KB.

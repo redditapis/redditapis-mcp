@@ -35,7 +35,7 @@ const boot = async (baseUrl) => {
   return client;
 };
 const txt = (r) => r.content[0].text;
-const draft = (client, title) => client.callTool({ name: "reddit_feedback_send", arguments: { type: "bug", title, details: "- What happened: x\n- What the user said: y\n- Repro: z\n- Evidence: auto" } });
+const draft = (client, title) => client.callTool({ name: "reddit_feedback_send", arguments: { type: "bug", title, details: "- What happened: x\n- Repro: z\n- Evidence: auto" } });
 
 const c = await boot(base);
 // 502 carries the hint, and the draft that follows names the tool and the request id.

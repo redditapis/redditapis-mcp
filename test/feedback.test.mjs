@@ -40,7 +40,7 @@ check("default queue path is under ~/.redditapis", /\.redditapis\/feedback-queue
 
 // draft
 {
-  const r = await tool({ type: "bug", title: "post_comments 502 on deleted post", details: "- What happened: 502\n- What the user said: none\n- Repro: x\n- Evidence: y", area: "posts/comments" });
+  const r = await tool({ type: "bug", title: "post_comments 502 on deleted post", details: "- What happened: 502\n- Repro: x\n- Evidence: y", area: "posts/comments" });
   check("draft is not an error", !r.isError, txt(r));
   check("draft says nothing was sent", /Nothing was sent/.test(txt(r)));
   check("draft made no network call", calls.length === 0);
@@ -73,7 +73,7 @@ check("default queue path is under ~/.redditapis", /\.redditapis\/feedback-queue
   const bad2 = await tool({ type: "idea", title: "", details: "d" });
   check("empty title is an error", bad2.isError && /title is required/.test(txt(bad2)));
   const bad3 = await tool({ type: "idea", title: "t", details: "" });
-  check("empty details is an error", bad3.isError && /four labelled bullets/.test(txt(bad3)));
+  check("empty details is an error", bad3.isError && /three labelled bullets/.test(txt(bad3)));
   const bad4 = await tool({ type: "idea", title: "t", details: "d", evidence: { blob: "x".repeat(5000) } });
   check("oversized evidence is an error", bad4.isError && /4096/.test(txt(bad4)));
   check("rejections wrote nothing", queue().length === 2);
@@ -280,7 +280,7 @@ rmSync(dir, { recursive: true, force: true });
     },
     version: "9.9.9", getClientInfo: () => ({ name: "a", version: "1" }), getLastError: () => null, env: env5,
   });
-  await stuckTool({ type: "bug", title: "stuck one", details: "- What happened: 1\n- What the user said: 2\n- Repro: 3\n- Evidence: 4" });
+  await stuckTool({ type: "bug", title: "stuck one", details: "- What happened: 1\n- Repro: 3\n- Evidence: 4" });
   const id5 = JSON.parse(rf(qp5, "utf8")).drafts[0].id;
   const r5 = await stuckTool({ action: "send", ids: [id5] });
   rm(lockDir, { recursive: true, force: true });

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.1 (2026-10-02)
+
+- Feedback reports no longer ask for the user's words: `reddit_feedback_send` `details` is three
+  bullets (What happened, Repro, Evidence), optionally after a one-line summary of the goal, and the
+  server instructions match. No quote of the conversation is collected (Connectors Directory rule
+  against extraneous conversation data).
+- The description gate adds check (e) for conversation-data asks in descriptions and instructions,
+  and check (d) refuses external links: https on our own or example hosts only, bare hosts on real
+  TLDs, backslash authorities, emails, IP addresses and javascript:/data: schemes.
+
 ## 0.9.0 (2026-10-02)
 
 ### Fixed
