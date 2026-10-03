@@ -15,7 +15,7 @@
 //
 // Run alone: node test/watch.test.mjs
 import assert from "node:assert/strict";
-import { compileWatch, applyPlan, readSlots, createSetWatchHandler, parseResult } from "../src/watch.js";
+import { compileWatch, applyPlan, readSlots, createSetWatchHandler, parseResult, segment } from "../src/watch.js";
 import { planStep, buildWatchSummary } from "../src/watch-text.js";
 
 let n = 0;
@@ -128,6 +128,120 @@ check("a description anchored by neither a subreddit nor a keyword is refused", 
   // and the twins that ARE anchored
   assert.equal(compileWatch("watch r/SaaS").error, null);
   assert.equal(compileWatch('watch for "pricing"').error, null);
+});
+
+// ── REVIEW 2026-10-02: the clause-contamination class ───────────────────────
+//
+// Four HIGH defects, one cause. Every field matched its own regular expression
+// over the WHOLE sentence, so two clauses read the same words and one was
+// wrong. Three green suites passed over four live defects, because each earlier
+// patch taught the tests the shape that had just been fixed and nothing about
+// the class.
+//
+// Each case below is the reviewer's own failing sentence, verbatim, and each
+// asserts the SPECIFIC wrong value the old compiler produced, so the test is
+// red on the pre-fix head rather than merely green on the new one.
+
+check("RED 1.1: a quoted EXCLUSION never becomes the keyword", () => {
+  // Was: {"q":"giveaway","exclude_terms":["giveaway"]}. q === exclude_terms[0]
+  // means the monitor can never deliver, while the caller is handed a monitor
+  // id, a green test delivery, and then silence forever.
+  const a = compileWatch('watch r/SaaS for pricing except "giveaway"').filter;
+  assert.equal(a.q, "pricing", "the keyword must come from the keyword clause");
+  assert.deepEqual(a.exclude_terms, ["giveaway"]);
+  assert.notEqual(a.q, a.exclude_terms[0], "a filter whose keyword IS its exclusion can never match anything");
+
+  const b = compileWatch('watch r/SaaS for churn without "spam"').filter;
+  assert.equal(b.q, "churn");
+  assert.deepEqual(b.exclude_terms, ["spam"]);
+  assert.notEqual(b.q, b.exclude_terms[0]);
+
+  // The invariant behind both, over every exclusion shape.
+  for (const sentence of [
+    'r/SaaS for pricing ignoring "promo"',
+    'r/SaaS for pricing but not "giveaway"',
+    'r/SaaS for pricing excluding "spam"',
+  ]) {
+    const f = compileWatch(sentence).filter;
+    for (const t of f.exclude_terms || []) {
+      assert.notEqual(f.q, t, `${sentence}: the excluded term became the keyword`);
+    }
+  }
+});
+
+check("RED 1.2: 'for posts about X' watches for X, not for the scaffolding", () => {
+  // Was: q = "posts about pricing", which matches essentially nothing. This is
+  // the most natural sentence a person types, and the refusal message for an
+  // unanchored description advertises this exact form.
+  assert.equal(compileWatch("watch r/SaaS for posts about pricing").filter.q, "pricing");
+  assert.equal(compileWatch("watch r/SaaS for anything mentioning kubernetes").filter.q, "kubernetes");
+  assert.equal(compileWatch("watch r/SaaS for comments discussing churn").filter.q, "churn");
+  assert.equal(compileWatch("r/SaaS for people talking about onboarding").filter.q, "onboarding");
+  // NEGATIVE TWIN: a real keyword that merely CONTAINS a lead word is not cut
+  // at it, because the scaffolding strip fires only after a scaffolding noun.
+  assert.equal(compileWatch("watch r/SaaS for a tool for teams").filter.q, "tool for teams");
+  assert.equal(compileWatch('r/SaaS for "top 10 tools"').filter.q, "top 10 tools");
+});
+
+check("RED 1.3: a keyword written AFTER a score phrase is not discarded", () => {
+  // Was: {"subreddit":["SaaS"],"min_score":5} with no keyword at all, so the
+  // monitor became a firehose of every post over the score floor.
+  const f = compileWatch("watch r/SaaS for posts with at least 5 upvotes about pricing").filter;
+  assert.equal(f.q, "pricing", "the keyword after the score clause was dropped");
+  assert.equal(f.min_score, 5);
+  // A score clause consumes only its own words, so what follows is a fresh span.
+  assert.deepEqual(
+    segment("watch for posts with at least 5 upvotes about pricing").map((x) => x.kind),
+    ["keyword", "score", "keyword"],
+  );
+});
+
+check("RED 1.4: the match kind is never read out of the keyword", () => {
+  // Was: kind "comment" for 'for "comment moderation"', silently switching the
+  // watch to comments only and missing every post.
+  assert.equal(compileWatch('watch r/SaaS for "comment moderation"').filter.kind, undefined);
+  assert.equal(compileWatch("watch r/SaaS for comment moderation").filter.kind, undefined);
+  assert.equal(compileWatch('watch r/SaaS for "post scheduling"').filter.kind, undefined);
+  assert.equal(compileWatch('r/SaaS for "pricing" excluding "comment spam"').filter.kind, undefined);
+  // POSITIVE TWINS: the kind still comes from words the sentence spends on it.
+  assert.equal(compileWatch('r/SaaS comments for "pricing"').filter.kind, "comment");
+  assert.equal(compileWatch('r/SaaS posts and comments for "pricing"').filter.kind, "both");
+});
+
+check("RED 1.6: a pasted reddit.com/r/X link is the subreddit, not a site-wide watch", () => {
+  // Was: {"q":"pricing"} with no subreddit and an empty notes array, so the
+  // watch went site-wide and consumed the account's one free site-wide slot.
+  for (const url of [
+    'watch https://reddit.com/r/SaaS for "pricing"',
+    'watch https://www.reddit.com/r/SaaS/ for "pricing"',
+    'watch old.reddit.com/r/SaaS for "pricing"',
+    'watch reddit.com/r/SaaS for "pricing"',
+  ]) {
+    const f = compileWatch(url).filter;
+    assert.deepEqual(f.subreddit, ["SaaS"], `${url}: the link's subreddit was lost`);
+    assert.equal(f.q, "pricing", `${url}: the link text leaked into the keyword`);
+  }
+  // NEGATIVE TWIN: an ordinary path is still not a subreddit.
+  assert.equal(compileWatch('for "x" see docs/r/readme').filter.subreddit, undefined);
+});
+
+check("a lossy compile is never silent: a dropped second keyword is named", () => {
+  const r = compileWatch("watch r/SaaS for pricing with at least 5 upvotes about churn");
+  assert.equal(r.filter.q, "pricing");
+  assert.ok(r.notes.length >= 1, "dropping a phrase the description carries must be reported");
+  assert.match(r.notes.join(" "), /"churn" was not/);
+  // NEGATIVE TWIN: a compile that drops nothing says nothing.
+  assert.deepEqual(compileWatch('r/SaaS for "pricing"').notes, []);
+});
+
+check("segment cuts a sentence once, and each field then reads its own span", () => {
+  assert.deepEqual(
+    segment('for pricing except "giveaway" and deliver to slack').map((x) => [x.kind, x.text]),
+    // "and deliver" is the marker, so the clause the sentence hands it is "to slack".
+    [["keyword", "for pricing"], ["exclude", '"giveaway"'], ["deliver", "to slack"]],
+  );
+  assert.deepEqual(segment("for pricing").map((x) => x.kind), ["keyword"]);
+  assert.deepEqual(segment("").map((x) => x.kind), []);
 });
 
 // ── plan preflight ──────────────────────────────────────────────────────────
@@ -329,6 +443,105 @@ await acheck("a failed plan preflight is not fatal: the request goes as compiled
   const add = api.calls.find((c) => c.path === "/api/reddit/monitor/add");
   assert.deepEqual(add.args.subreddit, ["SaaS"]);
   assert.equal(r.structuredContent.plan, null);
+});
+
+// ── REVIEW 2026-10-02: the handler's "unknown reported as fine" class ───────
+
+await acheck("RED 3.1: the signing secret is IN the result, because the result says it is", async () => {
+  // Was: the secret was read only to set a boolean and then dropped, while the
+  // summary asserted "Its signing secret is in this result and is not returned
+  // again". The API returns it once and the webhook list never returns it
+  // again, so a watch set up this way left its owner permanently unable to
+  // verify a delivery signature, and told them otherwise.
+  const json = (o) => ({ content: [{ type: "text", text: JSON.stringify(o) }] });
+  const callEndpoint = async (path) => {
+    if (path === "/api/reddit/monitor/list") return json({ slots: PAID_SLOTS });
+    if (path === "/api/reddit/monitor/add") return json({ monitor: { id: "mon_1" } });
+    if (path === "/api/reddit/monitor/webhook/create") return json({ webhook: { id: "wh_1", kind: "slack", secret: "whsec_live_value" } });
+    return json({ ok: true });
+  };
+  const r = await createSetWatchHandler({ callEndpoint })({ watch: 'r/SaaS for "x"', deliver_to: "https://example.com/h" });
+  assert.equal(r.structuredContent.delivery.secret, "whsec_live_value", "the secret the API returned once must be in the result");
+  assert.match(r.content[0].text, /signing secret is in this result/);
+
+  // NEGATIVE TWIN: no secret returned means the sentence is not said at all.
+  const noSecret = async (path) => {
+    if (path === "/api/reddit/monitor/list") return json({ slots: PAID_SLOTS });
+    if (path === "/api/reddit/monitor/add") return json({ monitor: { id: "mon_1" } });
+    if (path === "/api/reddit/monitor/webhook/create") return json({ webhook: { id: "wh_1", kind: "slack" } });
+    return json({ ok: true });
+  };
+  const r2 = await createSetWatchHandler({ callEndpoint: noSecret })({ watch: 'r/SaaS for "x"', deliver_to: "https://example.com/h" });
+  assert.equal(r2.structuredContent.delivery.secret, null);
+  assert.doesNotMatch(r2.content[0].text, /signing secret/, "a secret that was never returned must not be claimed");
+});
+
+await acheck("RED 3.2: a test delivery whose answer cannot be read is UNKNOWN, not a success", async () => {
+  // Was: `ok: body?.ok !== false`, so a missing or unparseable body read as a
+  // SUCCESSFUL test delivery. This product's own instructions tell a caller
+  // that unknown, partial or null is unanswered rather than healthy.
+  const json = (o) => ({ content: [{ type: "text", text: JSON.stringify(o) }] });
+  const base = (testBody) => async (path) => {
+    if (path === "/api/reddit/monitor/list") return json({ slots: PAID_SLOTS });
+    if (path === "/api/reddit/monitor/add") return json({ monitor: { id: "mon_1" } });
+    if (path === "/api/reddit/monitor/webhook/create") return json({ webhook: { id: "wh_1", kind: "slack" } });
+    if (path === "/api/reddit/monitor/webhook/test") return testBody;
+    return json({ ok: true });
+  };
+  const run = async (testBody) =>
+    (await createSetWatchHandler({ callEndpoint: base(testBody) })({ watch: 'r/SaaS for "x"', deliver_to: "https://example.com/h" }));
+
+  // Three shapes that are NOT a stated success.
+  for (const body of [json({}), json({ reason: "queued" }), { content: [{ type: "text", text: "<html>502</html>" }] }]) {
+    const r = await run(body);
+    assert.equal(r.structuredContent.delivery.test.ok, null, `a body without ok:true must not read as a success: ${JSON.stringify(body)}`);
+    assert.match(r.content[0].text, /did not say whether it landed/);
+    assert.doesNotMatch(r.content[0].text, /A test delivery reached the target/);
+  }
+  // POSITIVE AND NEGATIVE TWINS: a stated answer is still reported as stated.
+  assert.equal((await run(json({ ok: true }))).structuredContent.delivery.test.ok, true);
+  assert.match((await run(json({ ok: true }))).content[0].text, /A test delivery reached the target/);
+  const failed = await run(json({ ok: false, hint: "the kind does not match the host" }));
+  assert.equal(failed.structuredContent.delivery.test.ok, false);
+  assert.match(failed.content[0].text, /did not land: the kind does not match the host/);
+});
+
+await acheck("RED 3.3: a skipped re-point is reported, never left to read as a completed one", async () => {
+  // Was: when the monitor came back without an id the re-point was skipped with
+  // NO note, while the summary still said the target was registered, so the
+  // caller believed matches were routed to it.
+  const json = (o) => ({ content: [{ type: "text", text: JSON.stringify(o) }] });
+  const callEndpoint = async (path) => {
+    if (path === "/api/reddit/monitor/list") return json({ slots: PAID_SLOTS });
+    if (path === "/api/reddit/monitor/add") return json({ monitor: { filter_spec: {} } }); // no id
+    if (path === "/api/reddit/monitor/webhook/create") return json({ webhook: { id: "wh_1", kind: "slack" } });
+    return json({ ok: true });
+  };
+  const r = await createSetWatchHandler({ callEndpoint })({ watch: 'r/SaaS for "x"', deliver_to: "https://example.com/h" });
+  assert.equal(r.structuredContent.delivery.targeted, false);
+  assert.ok(
+    r.structuredContent.notes.some((x) => /could not be pointed at the new delivery target/.test(x)),
+    `a skipped re-point must be named; notes were ${JSON.stringify(r.structuredContent.notes)}`,
+  );
+  assert.match(r.content[0].text, /could not be pointed at/);
+
+  // And the sibling: a webhook that comes back with no id at all.
+  const noId = async (path) => {
+    if (path === "/api/reddit/monitor/list") return json({ slots: PAID_SLOTS });
+    if (path === "/api/reddit/monitor/add") return json({ monitor: { id: "mon_1" } });
+    if (path === "/api/reddit/monitor/webhook/create") return json({ webhook: { kind: "slack" } });
+    return json({ ok: true });
+  };
+  const r2 = await createSetWatchHandler({ callEndpoint: noId })({ watch: 'r/SaaS for "x"', deliver_to: "https://example.com/h" });
+  assert.ok(r2.structuredContent.notes.some((x) => /without an id/.test(x)), "a target with no id must be named");
+});
+
+await acheck("the compiler's own notes reach the caller's result, not just the compile step", async () => {
+  const api = fakeApi();
+  const h = createSetWatchHandler({ callEndpoint: api.callEndpoint });
+  const r = await h({ watch: "watch r/SaaS for pricing with at least 5 upvotes about churn" });
+  assert.match(r.content[0].text, /"churn" was not/);
+  assert.ok(r.structuredContent.notes.some((x) => /churn/.test(x)));
 });
 
 // ── the result text ─────────────────────────────────────────────────────────

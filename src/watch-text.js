@@ -71,14 +71,24 @@ export function buildWatchSummary(payload) {
 
   const d = payload?.delivery;
   if (d?.registered) {
+    // THE SECRET SENTENCE IS CONDITIONAL ON THE SECRET BEING THERE. It used to
+    // be printed whenever the API had returned one, while the handler kept only
+    // a boolean and threw the value away, so the result asserted something
+    // about a credential that was not in it. `secret` now carries the value and
+    // this sentence is tied to the value, not to a flag about it.
     lines.push(
       `Delivery target registered${d.kind ? ` as kind ${d.kind}` : ""}${d.webhook_id ? ` (id ${d.webhook_id})` : ""}.` +
-        (d.secret_shown_once ? " Its signing secret is in this result and is not returned again." : ""),
+        (d.secret ? " Its signing secret is in this result, as `delivery.secret`, and is not returned again." : ""),
     );
     if (d.test && d.test.ok === false) {
       lines.push(`The test delivery did not land: ${d.test.hint || d.test.reason || d.test.detail || "no detail returned"}.`);
-    } else if (d.test && d.test.ok) {
+    } else if (d.test && d.test.ok === true) {
       lines.push("A test delivery reached the target.");
+    } else if (d.test) {
+      // UNKNOWN IS NOT FINE. A test whose answer could not be read says so,
+      // because "a test delivery reached the target" on no evidence is the one
+      // thing the caller must not be told.
+      lines.push("A test delivery was sent and the response did not say whether it landed; the target is unconfirmed.");
     }
   } else if (d && d.registered === false) {
     lines.push("The delivery target was not registered; matches go to every active webhook already on the account.");

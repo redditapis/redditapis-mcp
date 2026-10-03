@@ -169,7 +169,7 @@ Monitors watch **named subreddits or all of Reddit**, for **posts or comments** 
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| `reddit_set_watch` | `POST /api/reddit/monitor/add` (+ webhook create/update/test) | One call instead of three: compiles a plain-words description (`r/Name` subreddits, quoted keyword terms, `comments`, `except ...`, `at least N upvotes`) into a monitor filter, reads this account's plan capabilities, creates the monitor, then registers, points and test-fires the `deliver_to` webhook. Refuses a description anchored by neither a subreddit nor a keyword before sending anything, and returns what it understood so you can check it. |
+| `reddit_set_watch` | `POST /api/reddit/monitor/add` (+ webhook create/update/test) | One call instead of three: compiles a plain-words description into a monitor filter, reads this account's plan capabilities, creates the monitor, then registers, points and test-fires the `deliver_to` webhook. The sentence is cut into clauses first, so each part reads only its own words: subreddits as `r/Name` **or a pasted `reddit.com/r/Name` link**, quoted phrases as keyword terms, `except`/`without`/`ignoring` as exclusions, `at least N upvotes` as a score floor, and `comments` / `posts and comments` as the match kind. Refuses a description anchored by neither a subreddit nor a keyword before sending anything, returns `understood` and `compiled_filter` so you can check it, and `notes` names anything it dropped or rewrote. |
 | `reddit_monitor_add` | `POST /api/reddit/monitor/add` | Create a monitor: subreddits to watch plus an optional filter (keyword, author, domain, include/exclude terms, min score, NSFW). Forward-looking only from creation (or from `baseline_item_id`). |
 | `reddit_monitor_list` | `GET /api/reddit/monitor/list` | List every monitor on your account, plus `slots` ({used, total, tier}). |
 | `reddit_monitor_update` | `POST /api/reddit/monitor/update` | Pause/resume (`active`), re-cadence, or replace a monitor's filter. Passing any filter field REPLACES the whole filter -- resupply everything you want kept. |
@@ -192,6 +192,8 @@ Three reusable recipes ship as MCP **resources** rather than tools, because the 
 | `playbook://pain-point-mining` | Finding problems in the words people actually use, from comment bodies rather than post titles, ranking them by distinct authors rather than hits, and turning a one-off sweep into a standing feed. |
 
 Each is a short markdown document built only from calls this package already exposes, so a recipe cannot point at something unbuilt. A test checks every tool each playbook names against the live catalog.
+
+The bodies are documentation and name the calls they are recipes for, which is the point of them. That is a deliberate difference from tool **descriptions**, which a client fetches at connect time and nobody chose: those state product facts only and a gate enforces it. A resource is read only when something asks for its URI, so it is a document you opened, not an injection. The bodies are still checked for hidden or encoded text, for any link off our own hosts, and for adversarial steering (overriding your instructions, concealment, exfiltration, or spending your credits in a loop), each with a planted-defect control.
 
 ```jsonc
 // resources/list, then

@@ -46,60 +46,90 @@
 import { buildWatchSummary } from "./watch-text.js";
 
 // ── the compiler ────────────────────────────────────────────────────────────
+//
+// SEGMENT FIRST, THEN DERIVE EACH FIELD FROM ITS OWN SPAN. This used to match
+// every field with its own regular expression over the WHOLE sentence, and that
+// design has exactly one failure mode which it produces over and over: two
+// clauses read the same words and one of them is wrong.
+//
+// It was found four times before the shape was admitted. "except giveaway with
+// at least 5 upvotes" put the score phrase inside the excluded term. Then
+// 'for pricing except "giveaway"' put the EXCLUDED phrase into `q`, so `q` and
+// `exclude_terms[0]` were the same string and the monitor could never deliver
+// anything, while reporting a monitor id and a green test. Then "for posts
+// about pricing" kept the scaffolding and watched for the literal phrase
+// "posts about pricing". Then 'for "comment moderation"' read the word comment
+// out of the user's own keyword and quietly switched the watch to comments
+// only, missing every post. Patching the pairs one at a time produced three
+// green suites over four live defects, because each patch taught the tests the
+// shape that had just been fixed and nothing about the class.
+//
+// So the sentence is cut into clauses ONCE, by the markers that start them, and
+// after that every field reads only its own span:
+//   keyword  <- the spans that are not another clause
+//   exclude  <- the span after except / without / ignoring
+//   score    <- the score phrase itself, which consumes only its own words
+//   kind     <- the words left after the subreddits, the quotes and the derived
+//               keywords are removed, so a keyword can never set it
+// A quoted phrase belongs to whichever span contains it, which is what makes
+// an exclusion stay an exclusion.
+//
+// AND WHEN SOMETHING THE USER WROTE IS DROPPED OR REWRITTEN, IT GETS A NOTE.
+// Every defect above was silent, and silence is what made each one expensive:
+// the result said `watching`, carried a monitor id and a green test delivery,
+// and the watch did nothing. An empty `notes` on a lossy compile is itself the
+// bug, so the note is part of the contract and is asserted per case.
 
-// r/Name or /r/Name. Reddit subreddit names are 3-21 characters of
-// [A-Za-z0-9_], starting with a letter or digit.
+// Subreddits, in two forms. A pasted link is how people actually name a
+// community, and reading only the bare form sent the watch SITE-WIDE on a
+// pasted URL while consuming the account's one free site-wide slot.
+const SUBREDDIT_URL_RE =
+  /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)*reddit\.com\/r\/([A-Za-z0-9][A-Za-z0-9_]{1,20})(?![A-Za-z0-9_])\/?/gi;
+// The bare form. The leading class deliberately excludes "/", so a path such as
+// docs/r/readme is not a subreddit; the URL form above is how a real link gets in.
 const SUBREDDIT_RE = /(?:^|[\s,.;:("'[])\/?r\/([A-Za-z0-9][A-Za-z0-9_]{1,20})(?![A-Za-z0-9_])/g;
 
-// Quoted phrases become keyword terms. Straight double quotes, curly double
-// quotes and curly single quotes only: a straight apostrophe is far more often
-// a contraction ("don't") than a quote, and treating it as one turns half a
+// Quoted phrases become terms. Straight double quotes, curly double quotes and
+// curly single quotes only: a straight apostrophe is far more often a
+// contraction ("don't") than a quote, and treating it as one turns half a
 // sentence into a keyword.
 const QUOTED_RE = /"([^"]{1,200})"|“([^”]{1,200})”|‘([^’]{1,200})’/g;
 
-// The clause that introduces a keyword when nothing is quoted.
+// The clause that introduces a keyword.
 const KEYWORD_LEAD_RE =
   /\b(?:mentions? of|mentioning|that mentions?|who mentions?|talking about|talks about|keyword|about|for)\s+(.+)$/i;
 
-// WHERE A CLAUSE STOPS. Every clause in one of these sentences runs until the
-// next instruction starts, and the clauses are written in any order, so the
-// same stop list serves all of them.
-//
-// THE EXCLUSION CLAUSE USED TO HAVE A SHORTER STOP LIST THAN THE KEYWORD CLAUSE,
-// and an end-to-end smoke over stdio caught what that costs: "except giveaway
-// with at least 5 upvotes" compiled the score phrase INTO the excluded term, so
-// the monitor suppressed the literal string "giveaway with at least 5 upvotes",
-// which nothing on Reddit says, while the score floor it also parsed correctly
-// stayed. A filter that silently excludes nothing is worse than one that fails,
-// because it looks like it worked. One shared stop list, no second copy to
-// drift.
-const CLAUSE_STOP_SRC =
-  "[.;]|$" +
-  "|\\b(?:with\\s+)?(?:a\\s+)?(?:at least|minimum of|min(?:imum)?|over|above)\\s+\\d" +
-  "|\\bscore\\b" +
-  "|\\band (?:deliver|send|post|notify|alert)\\b" +
-  "|\\bdeliver(?:ed)? to\\b|\\bsend to\\b";
-
-const KEYWORD_STOP_RE = new RegExp(
-  `\\s*(?:\\b(?:except|excluding|but not|ignoring|ignore|without)\\b|${CLAUSE_STOP_SRC})`,
-  "i",
-);
-
-const EXCLUDE_RE = new RegExp(
-  `\\b(?:except|excluding|but not|ignoring|ignore|without)\\s+(.+?)(?=\\s*(?:${CLAUSE_STOP_SRC}))`,
-  "i",
-);
+// Scaffolding between a lead word and the phrase actually being watched for:
+// "for POSTS ABOUT pricing", "for ANYTHING MENTIONING kubernetes". Stripped only
+// when the words before the inner lead are scaffolding nouns, so a real keyword
+// that happens to contain "about" or "for" ("a tool for teams") is left alone.
+const SCAFFOLD_RE =
+  /^(?:(?:new|all|any|the)\s+)*(?:posts?|comments?|threads?|submissions?|mentions?|anything|anyone|everything|everyone|people|someone|somebody|users?|redditors?)\s+(?:that\s+|which\s+)?(?:about|mentioning|mentions?|discussing|discuss(?:es)?|talking about|talks about|referencing|references?|regarding|on|of)\s+/i;
 
 const MIN_SCORE_RE =
   /\b(?:at least|minimum of|min(?:imum)?|over|above)\s+(\d{1,7})\s*\+?\s*(?:upvotes?|points?|score|karma)\b/i;
 const MIN_SCORE_ALT_RE = /\bscore\s+(?:of\s+)?(?:at least|over|above|>=?)\s*(\d{1,7})\b/i;
 
-// Filler the keyword clause picks up from ordinary English.
+// Filler an ordinary English clause carries into a keyword.
 const LEADING_FILLER_RE = /^(?:the|a|an|any|all|new|every)\s+/i;
 const TRAILING_NOISE_RE =
   /\s*\b(?:posts?|comments?|threads?|submissions?|posts? and comments?|mentions?|in|on|from|to|anywhere|site[- ]?wide|sitewide)\b[\s.]*$/i;
 
 const RESERVED_SUBREDDITS = new Set(["all", "popular"]);
+
+// The markers that start a clause, and how much of the sentence each consumes.
+//   "rest" runs to the next marker or the end of the sentence.
+//   "self" consumes only its own words, so the text after it is a fresh span
+//          and a keyword written after a score phrase is not thrown away.
+const CLAUSE_MARKERS = [
+  { kind: "exclude", consumes: "rest", re: /\b(?:except|excluding|but not|ignoring|ignore|without)\b/gi },
+  {
+    kind: "score",
+    consumes: "self",
+    re: /\b(?:with\s+)?(?:a\s+)?(?:at least|minimum of|min(?:imum)?|over|above)\s+\d{1,7}\s*\+?\s*(?:upvotes?|points?|score|karma)\b|\bscore\s+(?:of\s+)?(?:at least|over|above|>=?)\s*\d{1,7}\b/gi,
+  },
+  { kind: "deliver", consumes: "rest", re: /\b(?:and\s+(?:deliver|send|post|notify|alert)\b|deliver(?:ed)?\s+to\b|send\s+to\b)/gi },
+];
 
 function cleanTerm(s) {
   let t = String(s || "").replace(/\s+/g, " ").trim();
@@ -108,11 +138,80 @@ function cleanTerm(s) {
 }
 
 /**
+ * Cut a sentence into clauses. Exported so the tests can assert the cut itself
+ * rather than only its consequences: when a field comes out wrong, the question
+ * is always whether the clause or the field rule was at fault.
+ *
+ * @returns {{kind: "keyword"|"exclude"|"score"|"deliver", text: string}[]}
+ */
+export function segment(text) {
+  const src = String(text || "");
+  const hits = [];
+  for (const m of CLAUSE_MARKERS) {
+    const re = new RegExp(m.re.source, m.re.flags);
+    for (const hit of src.matchAll(re)) {
+      hits.push({ kind: m.kind, consumes: m.consumes, start: hit.index, end: hit.index + hit[0].length, match: hit[0] });
+    }
+  }
+  hits.sort((a, b) => a.start - b.start || b.end - a.end);
+
+  // Drop a marker that starts inside one already accepted, so "at least 5
+  // upvotes" is one score clause and not a score clause plus whatever its words
+  // happen to match.
+  const taken = [];
+  for (const h of hits) if (!taken.length || h.start >= taken[taken.length - 1].end) taken.push(h);
+
+  const out = [];
+  let pos = 0;
+  for (let i = 0; i < taken.length; i++) {
+    const h = taken[i];
+    if (h.start < pos) continue;
+    const head = cleanTerm(src.slice(pos, h.start));
+    if (head) out.push({ kind: "keyword", text: head });
+    if (h.consumes === "self") {
+      out.push({ kind: h.kind, text: h.match });
+      pos = h.end;
+    } else {
+      const next = taken.slice(i + 1).find((n) => n.start >= h.end);
+      const stop = next ? next.start : src.length;
+      out.push({ kind: h.kind, text: cleanTerm(src.slice(h.end, stop)) });
+      pos = stop;
+    }
+  }
+  const tail = cleanTerm(src.slice(pos));
+  if (tail) out.push({ kind: "keyword", text: tail });
+  return out;
+}
+
+/** Every quoted phrase in one span, de-duplicated case-insensitively. */
+function quotedIn(span) {
+  const out = [];
+  for (const m of String(span).matchAll(QUOTED_RE)) {
+    const t = cleanTerm(m[1] ?? m[2] ?? m[3]);
+    if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  return out;
+}
+
+/** The phrase a keyword span is actually about, or null. */
+function keywordFrom(span) {
+  const lead = String(span).match(KEYWORD_LEAD_RE);
+  if (!lead) return null;
+  let tail = cleanTerm(lead[1]).replace(LEADING_FILLER_RE, "");
+  // Strip scaffolding repeatedly, bounded, so "all posts about" reduces fully
+  // without a crafted sentence being able to loop here.
+  for (let i = 0; i < 3 && SCAFFOLD_RE.test(tail); i++) tail = cleanTerm(tail.replace(SCAFFOLD_RE, ""));
+  tail = cleanTerm(tail.replace(TRAILING_NOISE_RE, ""));
+  tail = cleanTerm(tail.replace(TRAILING_NOISE_RE, ""));
+  return tail && tail.length <= 200 ? tail : null;
+}
+
+/**
  * Compile a plain-words watch description into a monitor filter.
  *
  * Pure: no I/O, no clock, no randomness. Returns the filter the API takes, a
  * plain-English `understood` record of what each phrase became, and `notes`
- * describing anything that was dropped or rewritten.
+ * naming anything that was dropped or rewritten.
  *
  * @param {string} text
  * @returns {{filter: object, understood: object, notes: string[], error: string|null}}
@@ -124,36 +223,35 @@ export function compileWatch(text) {
     return { filter: {}, understood: {}, notes, error: "empty_description" };
   }
 
-  // 1. Subreddits.
+  // 1. Subreddits, link form first so the link's own text cannot then be read
+  //    as a keyword.
   const subs = [];
   const dropped = [];
-  for (const m of raw.matchAll(SUBREDDIT_RE)) {
-    const name = m[1];
+  const addSub = (name) => {
     if (RESERVED_SUBREDDITS.has(name.toLowerCase())) {
       if (!dropped.includes(name)) dropped.push(name);
-      continue;
+      return;
     }
-    if (!subs.some((s) => s.toLowerCase() === name.toLowerCase())) subs.push(name);
-  }
+    if (!subs.some((x) => x.toLowerCase() === name.toLowerCase())) subs.push(name);
+  };
+  let body = raw.replace(SUBREDDIT_URL_RE, (_, name) => { addSub(name); return " "; });
+  body = body.replace(SUBREDDIT_RE, (_, name) => { addSub(name); return " "; });
+  body = body.replace(/\s+/g, " ").trim();
   if (dropped.length) {
     notes.push(
       `r/${dropped.join(", r/")} names Reddit's site-wide listing rather than a subreddit, so it was dropped from the subreddit list; a watch with no subreddit list already covers every subreddit.`,
     );
   }
 
-  // 2. Match kind. "comments" alone means comments; naming both means both.
-  const saysComments = /\bcomments?\b/i.test(raw);
-  const saysPosts = /\bposts?\b|\bsubmissions?\b|\bthreads?\b/i.test(raw);
-  let kind;
-  if (saysComments && saysPosts) kind = "both";
-  else if (saysComments) kind = "comment";
+  // 2. Cut the sentence into clauses. Everything below reads one span only.
+  const spans = segment(body);
+  const keywordSpans = spans.filter((s) => s.kind === "keyword").map((s) => s.text);
+  const excludeSpans = spans.filter((s) => s.kind === "exclude").map((s) => s.text);
 
-  // 3. Keywords. Every quoted phrase is a term; two or more become an OR set,
-  //    which is what "watch for X or Y" means and what a single `q` cannot say.
+  // 3. Keywords, from the keyword spans and nowhere else.
   const quoted = [];
-  for (const m of raw.matchAll(QUOTED_RE)) {
-    const t = cleanTerm(m[1] ?? m[2] ?? m[3]);
-    if (t && !quoted.some((q) => q.toLowerCase() === t.toLowerCase())) quoted.push(t);
+  for (const span of keywordSpans) {
+    for (const t of quotedIn(span)) if (!quoted.some((x) => x.toLowerCase() === t.toLowerCase())) quoted.push(t);
   }
 
   let q;
@@ -161,41 +259,63 @@ export function compileWatch(text) {
   if (quoted.length === 1) {
     q = quoted[0];
   } else if (quoted.length > 1) {
-    includeAny = quoted;
+    includeAny = quoted.slice(0, 50);
   } else {
-    // Nothing quoted: take the clause after a keyword lead, with the subreddit
-    // tokens and the next instruction stripped off it.
-    const withoutSubs = raw.replace(SUBREDDIT_RE, " ").replace(/\s+/g, " ").trim();
-    const lead = withoutSubs.match(KEYWORD_LEAD_RE);
-    if (lead) {
-      let tail = lead[1];
-      const stop = tail.match(KEYWORD_STOP_RE);
-      if (stop && stop.index > 0) tail = tail.slice(0, stop.index);
-      tail = cleanTerm(tail).replace(LEADING_FILLER_RE, "");
-      // Trailing nouns such as "posts" or "in" are sentence scaffolding, not
-      // part of the phrase being watched for. Applied twice so "posts in"
-      // reduces fully.
-      tail = cleanTerm(tail.replace(TRAILING_NOISE_RE, ""));
-      tail = cleanTerm(tail.replace(TRAILING_NOISE_RE, ""));
-      if (tail && tail.length <= 200) q = tail;
+    const candidates = [];
+    for (const span of keywordSpans) {
+      const k = keywordFrom(span);
+      if (k && !candidates.some((x) => x.toLowerCase() === k.toLowerCase())) candidates.push(k);
+    }
+    if (candidates.length) q = candidates[0];
+    if (candidates.length > 1) {
+      notes.push(
+        `The description carries more than one phrase to watch for; ${JSON.stringify(candidates[0])} was used and ${candidates.slice(1).map((c) => JSON.stringify(c)).join(", ")} was not. Quoting each phrase matches any of them.`,
+      );
     }
   }
 
-  // 4. Exclusions.
+  // 4. Exclusions, from the exclusion spans and nowhere else. A quoted
+  //    exclusion is the phrase; otherwise the span splits on list punctuation.
   let excludeTerms;
-  const ex = raw.match(EXCLUDE_RE);
-  if (ex) {
-    const parts = ex[1]
-      .split(/\s*(?:,|\bor\b|\band\b)\s*/i)
-      .map((p) => cleanTerm(p.replace(/^["“‘]|["”’]$/g, "")))
-      .filter((p) => p && p.length <= 200);
-    if (parts.length) excludeTerms = parts.slice(0, 50);
+  const exTerms = [];
+  for (const span of excludeSpans) {
+    const qs = quotedIn(span);
+    const parts = qs.length
+      ? qs
+      : span.split(/\s*(?:,|\bor\b|\band\b)\s*/i).map((p) => cleanTerm(p)).filter(Boolean);
+    for (const p of parts) {
+      if (p.length <= 200 && !exTerms.some((x) => x.toLowerCase() === p.toLowerCase())) exTerms.push(p);
+    }
+  }
+  if (exTerms.length) excludeTerms = exTerms.slice(0, 50);
+
+  // 5. Score floor, from the score spans the cut already isolated.
+  let minScore;
+  for (const span of spans.filter((x) => x.kind === "score").map((x) => x.text)) {
+    const ms = span.match(MIN_SCORE_RE) || span.match(MIN_SCORE_ALT_RE);
+    if (ms) { minScore = Number(ms[1]); break; }
   }
 
-  // 5. Score floor.
-  let minScore;
-  const ms = raw.match(MIN_SCORE_RE) || raw.match(MIN_SCORE_ALT_RE);
-  if (ms) minScore = Number(ms[1]);
+  // 6. Match kind, LAST and only from what is left over.
+  //
+  // This used to read the whole sentence, so 'for "comment moderation"' found
+  // the word comment inside the user's own keyword and switched the watch to
+  // comments only, missing every post, with nothing said. The kind is a
+  // property of how the sentence describes the watch, never of the phrase being
+  // watched for, so the subreddits, every quoted span and every derived term
+  // come out before the question is asked.
+  let kindSource = body;
+  for (const span of keywordSpans) {
+    for (const t of quotedIn(span)) kindSource = kindSource.split(t).join(" ");
+  }
+  for (const t of [q, ...(includeAny || []), ...(exTerms || [])]) {
+    if (t) kindSource = kindSource.split(t).join(" ");
+  }
+  const saysComments = /\bcomments?\b/i.test(kindSource);
+  const saysPosts = /\bposts?\b|\bsubmissions?\b|\bthreads?\b/i.test(kindSource);
+  let kind;
+  if (saysComments && saysPosts) kind = "both";
+  else if (saysComments) kind = "comment";
 
   const filter = {};
   if (subs.length) filter.subreddit = subs.slice(0, 50);
@@ -376,13 +496,27 @@ export function createSetWatchHandler({ callEndpoint }) {
       } else {
         const wh = parseResult(whRes);
         const webhook = wh?.webhook || wh || {};
+        // THE SIGNING SECRET IS RETURNED, NOT COUNTED. It used to be read only
+        // to set a boolean and then dropped, while the summary said it was in
+        // the result. The API returns it exactly once and the webhook list
+        // never returns it again, so a watch set up this way left its owner
+        // permanently unable to verify a delivery signature, and told them
+        // otherwise. Passing it through is what the single-purpose webhook tool
+        // already does; anything less makes this path strictly worse than the
+        // three calls it replaces.
         delivery = {
           registered: true,
           webhook_id: webhook.id ?? null,
           kind: webhook.kind ?? null,
+          secret: typeof webhook.secret === "string" ? webhook.secret : null,
           secret_shown_once: typeof webhook.secret === "string",
           test: null,
         };
+        if (!webhook.id) {
+          notes.push(
+            "The delivery target was registered but came back without an id, so this monitor could not be pointed at it and no test delivery was sent. Its matches go to every active webhook on the account.",
+          );
+        }
 
         // Point this monitor at the new target, so its matches do not fan out
         // to every webhook the account happens to hold.
@@ -399,15 +533,34 @@ export function createSetWatchHandler({ callEndpoint }) {
               "This monitor could not be pointed at the new delivery target, so its matches go to every active webhook on the account.",
             );
           }
+        } else if (webhook.id) {
+          // A SKIPPED STEP THAT SAYS NOTHING READS AS A COMPLETED ONE. The
+          // monitor id is missing here, so the re-point never ran, and without
+          // this the summary would still report a registered target as though
+          // its matches were routed to it.
+          delivery.targeted = false;
+          notes.push(
+            "The created monitor did not come back with an id, so it could not be pointed at the new delivery target. Its matches go to every active webhook on the account.",
+          );
         }
 
         const wantsTest = testDelivery !== false;
         if (wantsTest && webhook.id) {
           const testRes = await callEndpoint("/api/reddit/monitor/webhook/test", { id: webhook.id }, "POST", AS_SET_WATCH);
           const body = parseResult(testRes);
+          // TRI-STATE, because this product's own instructions tell a caller
+          // that unknown is not healthy. `ok !== false` read a missing or
+          // unparseable body as a SUCCESSFUL test delivery, which is the one
+          // answer the caller must not be given on no evidence.
           delivery.test = testRes?.isError
-            ? { ok: false, detail: (testRes.content?.[0]?.text || "").slice(0, 600) }
-            : { ok: body?.ok !== false, reason: body?.reason ?? null, hint: body?.hint ?? null, status: body?.status ?? null, detail: body?.detail ?? null };
+            ? { ok: false, reason: null, hint: null, status: null, detail: (testRes.content?.[0]?.text || "").slice(0, 600) }
+            : {
+                ok: body?.ok === true ? true : body?.ok === false ? false : null,
+                reason: body?.reason ?? null,
+                hint: body?.hint ?? null,
+                status: body?.status ?? null,
+                detail: body?.detail ?? null,
+              };
         }
       }
     }

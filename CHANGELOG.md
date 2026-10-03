@@ -2,6 +2,49 @@
 
 ## 0.10.0 (2026-10-02)
 
+### Fixed before release, after review
+
+The watch compiler matched every field with its own regular expression over the
+**whole** sentence, so two clauses read the same words and one of them was
+wrong. Four HIGH defects, one cause, each one silent:
+
+- `for pricing except "giveaway"` put the EXCLUDED phrase into `q`, so `q` and
+  `exclude_terms[0]` were the same string and the monitor could never deliver,
+  while the caller got a monitor id, a green test delivery, and then silence.
+- `for posts about pricing`, the most natural sentence there is, watched for the
+  literal phrase "posts about pricing".
+- `for posts with at least 5 upvotes about pricing` dropped the keyword
+  entirely, leaving a firehose of every post over the score floor.
+- `for "comment moderation"` read the word *comment* out of the caller's own
+  keyword and switched the watch to comments only, missing every post.
+- A pasted `reddit.com/r/X` link was not read as a subreddit, so the watch went
+  site-wide and consumed the account's one free site-wide slot.
+
+The sentence is now cut into clauses **once** and every field reads only its own
+span; the match kind is derived last, from what is left after the subreddits,
+the quoted spans and the derived terms are removed, so a keyword can never set
+it. Patching the pairs one at a time had already produced three green suites
+over four live defects, which is why the fix is the structure and not another
+rule.
+
+**And a lossy compile is no longer silent.** Every one of the above reported
+`notes: []`. When the compiler drops or rewrites something the description
+carries, it says so, and that is asserted per case.
+
+Three more in the same family, all "unknown reported as fine":
+
+- The webhook signing secret was read only to set a boolean and then thrown
+  away, while the result asserted the secret was in it. The API returns that
+  secret exactly once and the webhook list never returns it again, so a watch
+  set up this way left its owner permanently unable to verify a delivery
+  signature, and told them otherwise. It is now returned as `delivery.secret`,
+  and the sentence is tied to the value rather than to a flag about it.
+- A test delivery whose body could not be read counted as a SUCCESS
+  (`ok !== false`). It is now tri-state, and an unreadable answer says the
+  target is unconfirmed.
+- When the created monitor came back without an id, the re-point was skipped
+  with no note while the result still reported a registered target.
+
 ### Added
 
 - **`reddit_set_watch`: one call where standing up a watch took three.** It compiles a plain-words
@@ -53,7 +96,11 @@
   else; a red test proves a non-local tool with no path, and a foreign prefix with or without a
   local handler, are still refused.
 - The description gate now audits resource metadata under the full matcher, and resource bodies for
-  hidden text and external links, each with a planted-defect control.
+  hidden text, external links and adversarial steering (overriding the caller's instructions,
+  concealment, exfiltration, spending the caller's credits in a loop), each with a planted-defect
+  control and clean twins. Full instruction phrasing stays OFF bodies deliberately: a description is
+  injected at connect time and nobody chose it, a resource is read only when its URI is asked for,
+  and a recipe that could not name the calls it is a recipe for would be useless.
 
 ### No tool was added for the credit balance
 
