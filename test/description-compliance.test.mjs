@@ -250,8 +250,14 @@ export async function listCatalog(create = createServer) {
   await client.connect(clientT);
   const { tools } = await client.listTools();
   const instructions = client.getInstructions();
+  const { resources } = await client.listResources();
+  const contents = [];
+  for (const r of resources) {
+    const read = await client.readResource({ uri: r.uri });
+    for (const c of read.contents || []) contents.push([r.uri, c.text ?? ""]);
+  }
   await client.close();
-  return { tools, instructions };
+  return { tools, instructions, resources, contents };
 }
 
 export function auditCatalog(tools) {
@@ -334,7 +340,7 @@ if (direct) {
   }
   ok(`matcher catches ${PLANTED.length} planted defects across all four checks and passes ${CLEAN.length} clean twins`);
 
-  const { tools, instructions } = await listCatalog();
+  const { tools, instructions, resources, contents } = await listCatalog();
   // Coverage floor: an empty or truncated listing must fail, not pass clean.
   assert.ok(tools.length >= 44, `listed only ${tools.length} tools; expected the full catalog (44+)`);
   const { findings, texts } = auditCatalog(tools);
@@ -350,6 +356,44 @@ if (direct) {
   }
   assert.equal(findings.length, 0, `${findings.length} description finding(s) across ${new Set(findings.map((f) => f.tool)).size} tool(s); run with --report for the list`);
   ok("no tool or parameter description names another tool, instructs the model, or carries hidden or encoded text");
+
+  // RESOURCES, held to two different standards on purpose.
+  //
+  // METADATA (title, description) is catalog metadata, the same class as a tool
+  // description: it is what a host shows in a picker before anything is read,
+  // so it gets the whole matcher.
+  //
+  // CONTENTS are the document, fetched only on an explicit resources/read for
+  // that exact URI. A playbook that could not name the calls it is a playbook
+  // for would be useless, so checks (a) tool names and (b) instruction phrasing
+  // do NOT apply to contents. Checks (c) hidden or encoded text and (d)
+  // external links still do, and they are the two that matter for a document a
+  // model may read: a recipe may say which tool to call, and may not smuggle an
+  // invisible instruction or point off our own hosts to fetch one.
+  assert.ok(resources.length >= 3, `expected at least 3 playbook resources, listed ${resources.length}`);
+  const resFindings = [];
+  for (const r of resources) {
+    resFindings.push(...findingsFor(`resource:${r.name}`, "title", r.title));
+    resFindings.push(...findingsFor(`resource:${r.name}`, "description", r.description));
+    assert.match(r.uri, /^playbook:\/\/[a-z0-9-]+$/, `resource ${r.name} has an unexpected URI ${r.uri}`);
+  }
+  assert.deepEqual(resFindings, [], `resource metadata findings: ${JSON.stringify(resFindings)}`);
+  ok(`${resources.length} playbook resources: metadata passes the full matcher`);
+
+  assert.ok(contents.length >= 3, `read only ${contents.length} resource bodies`);
+  const bodyFindings = [];
+  for (const [uri, text] of contents) {
+    assert.ok(text.length > 400, `resource ${uri} body is only ${text.length} chars`);
+    bodyFindings.push(...findingsFor(`body:${uri}`, "contents", text).filter((f) => f.check === "c" || f.check === "d"));
+  }
+  assert.deepEqual(bodyFindings, [], `resource body findings (hidden text / external links): ${JSON.stringify(bodyFindings)}`);
+  // Positive control on the body sweep: the same code must catch a planted
+  // defect of each class, or a clean result above means nothing.
+  for (const [check, planted] of [["c", "A recipe.\u200b"], ["d", "Full recipe at https://evil.example.io/x.md."]]) {
+    const f = findingsFor("body:control", "contents", planted).filter((x) => x.check === "c" || x.check === "d");
+    assert.ok(f.length, `the body sweep missed a planted (${check}) defect`);
+  }
+  ok(`${contents.length} playbook bodies carry no hidden text and no link off our own hosts (both controls fired)`);
 
   // The guidance moved, it did not vanish: the server instructions carry it.
   assert.equal(instructions, INSTRUCTIONS, "the client must receive the exported INSTRUCTIONS");

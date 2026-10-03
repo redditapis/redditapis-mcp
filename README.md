@@ -100,7 +100,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-44 tools: 30 Reddit reads, 10 monitor/webhook management tools, 3 feedback tools, and 1 account tool (`reddit_account_me`). Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+46 tools and 3 playbook resources: 30 Reddit reads, 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 1 account tool (`reddit_account_me`, which is also where the credit balance lives). Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -163,10 +163,13 @@ A few conventions across the catalog:
 
 ### Monitoring: manage your own monitors and webhooks
 
-v1 monitors are **subreddit-scoped, posts-only** (no all-of-Reddit keyword watch, no comment monitoring yet). Creating or updating a monitor or webhook needs an active plan; reading your own list/health/deliveries never does.
+Monitors watch **named subreddits or all of Reddit**, for **posts or comments** (`kind`). Every account holds a free entitlement of one all-of-Reddit post watch at a 60s cadence; naming a subreddit, matching comments, a faster cadence and any further watch need a paid plan. Registering a webhook does **not** need a paid plan, because the free watch delivers to one exactly like a paid watch does. Reading your own list, health and deliveries never needs a plan.
+
+`reddit_monitor_list` returns a `slots` object that states this account's capabilities outright: `used`, `total`, `tier`, `is_free`, `cadence_s` (the tier's cadence floor), `sitewide_slots`, `distinct_subreddits_used`, `distinct_subreddits_total`, `comments_allowed`, `scoped_allowed` and `sitewide_allowed`. `reddit_set_watch` reads those flags before it builds anything.
 
 | Tool | Endpoint | What it does |
 |---|---|---|
+| `reddit_set_watch` | `POST /api/reddit/monitor/add` (+ webhook create/update/test) | One call instead of three: compiles a plain-words description (`r/Name` subreddits, quoted keyword terms, `comments`, `except ...`, `at least N upvotes`) into a monitor filter, reads this account's plan capabilities, creates the monitor, then registers, points and test-fires the `deliver_to` webhook. Refuses a description anchored by neither a subreddit nor a keyword before sending anything, and returns what it understood so you can check it. |
 | `reddit_monitor_add` | `POST /api/reddit/monitor/add` | Create a monitor: subreddits to watch plus an optional filter (keyword, author, domain, include/exclude terms, min score, NSFW). Forward-looking only from creation (or from `baseline_item_id`). |
 | `reddit_monitor_list` | `GET /api/reddit/monitor/list` | List every monitor on your account, plus `slots` ({used, total, tier}). |
 | `reddit_monitor_update` | `POST /api/reddit/monitor/update` | Pause/resume (`active`), re-cadence, or replace a monitor's filter. Passing any filter field REPLACES the whole filter -- resupply everything you want kept. |
@@ -178,6 +181,23 @@ v1 monitors are **subreddit-scoped, posts-only** (no all-of-Reddit keyword watch
 | `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
 | `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
 
+### Playbooks: three recipes, served as MCP resources
+
+Three reusable recipes ship as MCP **resources** rather than tools, because the protocol makes resources application-driven: a host shows them in a picker or a search box and reads one only when it is asked for by URI. Nothing is prefetched and nothing is injected.
+
+| URI | What it covers |
+|---|---|
+| `playbook://competitor-mention-watch` | Standing up continuous coverage of competitor names and routing every match to a channel, including how to cut the false positives a brand name that is also an ordinary word produces, and how to tell a quiet monitor from a broken one. |
+| `playbook://subreddit-audit` | Profiling one community before posting in it: size against real comment rate, the rules as written and as enforced, the moderator team, what endures versus what is working this month, and whether posts survive. |
+| `playbook://pain-point-mining` | Finding problems in the words people actually use, from comment bodies rather than post titles, ranking them by distinct authors rather than hits, and turning a one-off sweep into a standing feed. |
+
+Each is a short markdown document built only from calls this package already exposes, so a recipe cannot point at something unbuilt. A test checks every tool each playbook names against the live catalog.
+
+```jsonc
+// resources/list, then
+{ "method": "resources/read", "params": { "uri": "playbook://subreddit-audit" } }
+```
+
 ### Feedback: tell the team what broke, after you review the draft
 
 Modelled on Claude Code's own feedback tool. When a call fails in a way that is not your key, credits or a rate limit, when you ask for something no tool covers, or when a result is plainly wrong, the model can **draft** a report into a local queue (`~/.redditapis/feedback-queue.json`, at most 10 drafts, override the directory with `REDDITAPIS_FEEDBACK_DIR`). Nothing is sent until you ask to review the queue and name the drafts to send. Each report carries the last failing call's endpoint, status and request id, your client name and this package's version, so the team can act on it without a follow-up. Use `reddit_feedback_get` with the returned server id to see whether it was triaged, shipped or declined. Both tools are free.
@@ -185,6 +205,7 @@ Modelled on Claude Code's own feedback tool. When a call fails in a way that is 
 | Tool | Endpoint | What it does |
 |------|----------|--------------|
 | `reddit_feedback_send` | `POST /feedback` | `action: "draft"` (default) queues a report locally and sends nothing; `"list"` shows the queue; `"send"` posts only the drafts you name; `"discard"` drops them. |
+| `reddit_explain` | none (in-process) | Provenance for the rows already fetched in this session: per completed call, the tool, the endpoint, when the response arrived, how old that copy now is, the upstream request id and the response size. The read path holds no response cache, so the age is the age of your copy, not of a stored row. |
 | `reddit_account_me` | `GET /account/me` | How much credit this key has left, before spending any. Free, never metered. |
 | `reddit_feedback_get` | `GET /feedback/{id}` | Read a sent report's status (`new`, `triaged`, `shipped`, `declined`) and the team's response. |
 

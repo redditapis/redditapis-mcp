@@ -18,6 +18,16 @@ const DOCUMENTED_TOOLS = [
 let pass = 0;
 const check = (name, fn) => { fn(); pass++; console.log(`PASS  ${name}`); };
 
+// The path rule, as a function so the red test at the bottom can exercise the
+// same code the catalog sweep runs rather than a restatement of it.
+const FREE_UNPREFIXED_PATHS = new Set(["/feedback", "/account/me"]);
+export function pathIsLegal(t) {
+  if (t.path === null || t.path === undefined) return Boolean(t.local);
+  return typeof t.path === "string" && (
+    t.path.startsWith("/api/reddit/") || FREE_UNPREFIXED_PATHS.has(t.path) || t.path.startsWith("/feedback/")
+  );
+}
+
 check("every tool has a unique name, path, description, and shape", () => {
   const names = new Set();
   for (const t of TOOLS) {
@@ -44,9 +54,17 @@ check("every tool has a unique name, path, description, and shape", () => {
     //                                                  path could not prove it)
     // Listed as EXACT paths rather than an /account/ prefix, so /account/payments
     // and any future sibling still have to be added on purpose.
-    const FREE_UNPREFIXED = new Set(["/feedback", "/account/me"]);
+    //
+    // A NULL PATH IS LEGAL FOR A LOCAL TOOL THAT REACHES NO ENDPOINT, and for
+    // nothing else. reddit_explain reads an in-process ledger and makes no
+    // request at all, so there is no endpoint to name and inventing one would
+    // be a path that 404s the first time anyone trusts it. The narrowing is
+    // tied to `local`: a tool with a null path must declare a local handler,
+    // and the handler-name check below (plus createServer's boot-time refusal)
+    // makes sure that handler exists. A NON-local tool with no path still
+    // fails here, which the red test at the bottom of this file proves.
     assert.ok(
-      t.path && (t.path.startsWith("/api/reddit/") || FREE_UNPREFIXED.has(t.path) || t.path.startsWith("/feedback/")),
+      pathIsLegal(t),
       `bad path: ${t.path}`,
     );
     assert.ok(typeof t.description === "string" && t.description.length > 40, `weak description: ${t.name}`);
@@ -88,7 +106,7 @@ check("every tool has a unique name, path, description, and shape", () => {
 // CATALOG_FLOOR to the new total (42 as of 2026-09-06) only if you want the
 // suite to guard the new tool's existence too, and add its README table row so
 // the parity check covers it.
-const CATALOG_FLOOR = 43;
+const CATALOG_FLOOR = 46;
 // Parser-sanity floor for the README table, NOT a second contract about how many
 // tools must be documented. It sits just under the 32 rows the table carries so
 // a reformat that silently drops a handful of rows still trips it, rather than
@@ -120,7 +138,8 @@ check("every tool documented in the shipped README still exists in the catalog",
 
 check("every path param {x} has a matching shape key", () => {
   for (const t of TOOLS) {
-    const params = [...t.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    // A local tool with no endpoint has no path params by construction.
+    const params = [...String(t.path ?? "").matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
     for (const p of params) assert.ok(p in t.shape, `${t.name}: path param {${p}} has no shape entry`);
   }
 });
@@ -139,6 +158,10 @@ const WRITE_TOOL_NAMES = new Set([
   "reddit_monitor_add", "reddit_monitor_update", "reddit_monitor_remove",
   "reddit_monitor_webhook_create", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete",
   "reddit_feedback_send",
+  // reddit_set_watch creates a monitor and may register a webhook. Same risk
+  // class as the six above: it configures the caller's OWN redditapis.com
+  // account and never posts, votes or messages on Reddit.
+  "reddit_set_watch",
 ]);
 const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete"]);
 
@@ -203,10 +226,10 @@ check("every write tool's filterSpecFields (if any) are all present in its own s
 // (createServer also refuses to build otherwise), and every `localArgs` entry is a
 // real key of the tool's own shape (a misspelt entry would silently send the
 // arg upstream).
-const LOCAL_HANDLER_NAMES = new Set(["feedback"]);
+const LOCAL_HANDLER_NAMES = new Set(["feedback", "set_watch", "explain"]);
 check("local tools name an implemented handler and only local args that exist in their shape", () => {
   const locals = TOOLS.filter((t) => t.local);
-  assert.ok(locals.length >= 1, "expected at least one local tool (reddit_feedback_send)");
+  assert.ok(locals.length >= 3, `expected at least three local tools, found ${locals.length}`);
   for (const t of locals) {
     assert.ok(LOCAL_HANDLER_NAMES.has(t.local), `${t.name}: unknown local handler "${t.local}"`);
     for (const a of t.localArgs || []) assert.ok(a in t.shape, `${t.name}: localArgs names "${a}" but shape has no such key`);
@@ -216,6 +239,31 @@ check("local tools name an implemented handler and only local args that exist in
   assert.deepEqual(byName.reddit_feedback_send.localArgs, ["action", "ids"]);
   assert.equal(byName.reddit_feedback_get.local, undefined, "reddit_feedback_get is a plain read of /feedback/{id}");
   assert.equal(byName.reddit_feedback_get.method || "GET", "GET");
+  // The composite watch tool: its three local-only args must never reach a
+  // monitor request body, and its path is the call that makes the watch exist.
+  assert.equal(byName.reddit_set_watch.local, "set_watch");
+  assert.deepEqual(byName.reddit_set_watch.localArgs, ["watch", "deliver_to", "test_delivery"]);
+  assert.equal(byName.reddit_set_watch.path, "/api/reddit/monitor/add");
+  // The provenance tool reaches no endpoint at all.
+  assert.equal(byName.reddit_explain.local, "explain");
+  assert.equal(byName.reddit_explain.path, null);
+  assert.equal(byName.reddit_explain.method || "GET", "GET");
+  assert.ok(!byName.reddit_explain.write, "reddit_explain changes nothing and must not be marked write");
+});
+
+// RED TEST for the null-path narrowing above. The relaxation is only safe if it
+// is bounded to local tools, so the bound is exercised here rather than
+// asserted in a comment: a non-local tool with no path must still be refused,
+// and a bad prefix must still be refused with or without a local handler.
+check("a null path is legal ONLY for a local tool, and a bad prefix is refused either way", () => {
+  assert.equal(pathIsLegal({ name: "x", path: null, local: "explain" }), true, "a local tool with no endpoint is legal");
+  assert.equal(pathIsLegal({ name: "x", path: null }), false, "a NON-local tool with no path must be refused");
+  assert.equal(pathIsLegal({ name: "x", path: undefined }), false, "an absent path on a non-local tool must be refused");
+  assert.equal(pathIsLegal({ name: "x", path: "/api/twitter/posts" }), false, "a foreign prefix must be refused");
+  assert.equal(pathIsLegal({ name: "x", path: "/api/twitter/posts", local: "explain" }), false, "a local handler must not launder a foreign prefix");
+  assert.equal(pathIsLegal({ name: "x", path: "/account/payments" }), false, "a free-mount sibling must be added on purpose");
+  assert.equal(pathIsLegal({ name: "x", path: "/api/reddit/monitor/add" }), true);
+  assert.equal(pathIsLegal({ name: "x", path: "/account/me" }), true);
 });
 
 check("buildQuery skips empty/null/undefined and stringifies", () => {

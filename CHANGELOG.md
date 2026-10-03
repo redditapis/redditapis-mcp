@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.10.0 (2026-10-02)
+
+### Added
+
+- **`reddit_set_watch`: one call where standing up a watch took three.** It compiles a plain-words
+  description into a monitor filter, reads the account's own plan capabilities, creates the monitor,
+  then registers, points and test-fires an optional `deliver_to` webhook. The compiler is a set of
+  regular expressions, not a model, so the same sentence always compiles to the same filter, and
+  everything it derived comes back in `understood` and `compiled_filter` for a person to check. It
+  reads `r/Name` subreddits, quoted phrases as keyword terms (two or more become an any-of set),
+  `comments` / `posts and comments` as the match kind, terms after `except` or `ignoring` as
+  exclusions, and `at least N upvotes` as a score floor.
+  - **The two rules that need no round trip are checked locally.** A description anchored by neither
+    a subreddit nor a keyword is refused with zero network calls, and `r/all` is dropped as Reddit's
+    site-wide listing rather than sent to earn a `subreddit_reserved` 400.
+  - **Plan awareness is a field read, not a guess.** `GET /api/reddit/monitor/list` is free and its
+    `slots` object states the account's capabilities outright (`scoped_allowed`, `comments_allowed`,
+    `sitewide_allowed`, the cadence floor and the distinct-subreddit allowance). On a plan without
+    subreddit-scoped watches, a description that names subreddits and also carries a keyword is
+    built over every subreddit instead, and the swap is reported; a description with no keyword has
+    no equivalent, so it goes as written and the API answers for itself. An unreadable `slots`
+    object rewrites nothing.
+  - **Ordered for the failure mode.** The monitor is created before the webhook, because a monitor
+    with no `webhook_ids` still delivers to every active webhook on the account, so a watch survives
+    a failed webhook registration. The reverse order would strand a webhook pointing at nothing when
+    the monitor hits a slot limit.
+- **Three playbooks as MCP resources**, at `playbook://competitor-mention-watch`,
+  `playbook://subreddit-audit` and `playbook://pain-point-mining`. Resources rather than tools
+  because the protocol makes resources application-driven: a host reads one only when it is asked
+  for by URI, and nothing is prefetched. Each is built only from calls this package already exposes,
+  and a test checks every tool each playbook names against the live catalog, so a recipe cannot
+  quietly start pointing at something that does not exist.
+- **`reddit_explain`: where the rows you are holding came from.** Per completed call, the tool that
+  made it, the endpoint, when the response arrived, how many seconds old that copy now is, the
+  upstream request id and the response size. It reaches no endpoint: the ledger is in memory, holds
+  the 20 most recent calls, starts empty and is scoped to one server, so one caller's endpoints and
+  request ids never reach another's.
+  - **It reports no cache age, because there is no cache.** The read path holds no response cache for
+    customer reads, so every call is served live and the age that exists is the age of this
+    session's copy of the rows, not of a stored row. The result says `response_cache: "none"` rather
+    than implying a freshness guarantee nothing provides, and it points at the published retention
+    table instead of restating a figure that would drift the day the table changes.
+
+### Changed
+
+- The README's monitoring note said monitors were "subreddit-scoped, posts-only" with "no
+  all-of-Reddit keyword watch, no comment monitoring yet", and that a webhook needs an active plan.
+  All three have been untrue since 2026-08-13 and the note ships in the npm tarball. It now
+  describes the free entitlement, site-wide and comment watching, and the full `slots` object.
+- The catalog test allows a `null` path for a local tool that reaches no endpoint, and for nothing
+  else; a red test proves a non-local tool with no path, and a foreign prefix with or without a
+  local handler, are still refused.
+- The description gate now audits resource metadata under the full matcher, and resource bodies for
+  hidden text and external links, each with a planted-defect control.
+
+### No tool was added for the credit balance
+
+`reddit_account_me` already returns `credits_remaining`, `credits_used` and `total_requests`, is
+free, is not metered and is already named in the server instructions. A second tool over the same
+endpoint would be a second name for one job and one more entry competing for attention in the
+catalog, so there is none.
+
 ## 0.9.1 (2026-10-02)
 
 - Feedback reports no longer ask for the user's words: `reddit_feedback_send` `details` is three
