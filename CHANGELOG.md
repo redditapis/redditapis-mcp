@@ -2,7 +2,51 @@
 
 ## 0.10.0 (2026-10-02)
 
-### Fixed before release, after review
+### The watch compiler refuses rather than guesses
+
+Seventeen defects were found in this compiler across three review rounds. Every
+single one had the same signature: it consumed part of the description, emitted
+a filter anyway, and said nothing. The worst produced a monitor whose keyword
+was a single `"` character.
+
+Rounds one and two were both fixed by writing better rules, and both shipped a
+suite that pinned the sentences just fixed and could not fail on an input nobody
+had thought of. Round two's rewrite broke nine inputs round one handled. More
+rules was never going to end.
+
+**So the contract is inverted.** Every character of a description must be
+claimed by exactly one thing: a subreddit, a quoted phrase, a keyword, an
+exclusion, a score clause, a delivery clause, or a word with no filter content.
+Anything left over, or counted twice, and the compiler returns **no filter at
+all** and names the words it could not place. A description that both watches
+for and excludes the same phrase is refused too, because that monitor could
+never deliver.
+
+That inverts the failure mode from "a silently wrong monitor that looks fine" to
+"a refusal that says why", which for this feature is the only safe direction:
+every failure here is invisible, and the caller otherwise gets a monitor id, a
+green test delivery and then silence or a firehose.
+
+Also fixed in the same pass, all found by the change above or by the corpus:
+quoted phrases are now taken out of the sentence **before** anything else reads
+it, so a marker word, a subreddit or a kind word inside your own quotes is just
+text (`for "ignore list"`, `for "except this"`, `for "send to production"` were
+all wrecked by this); the match kind is read from the original word positions
+rather than a string with substrings deleted, which had turned `posts and
+comments for "post"` into a comments-only watch; a subreddit inside a keyword or
+exclusion clause ends that clause instead of being swallowed into the term; and
+a bare multi-word keyword is reported in `notes`, because an unquoted keyword is
+a free-text run and absorbs whatever follows it.
+
+**The suite that could not see any of this has been replaced, not extended.**
+`test/watch-invariants.test.mjs` generates 28,511 sentences from pieces chosen
+to collide (marker words inside quotes, subreddits inside quotes, markers before
+the main clause, unicode quotes, conjunctions) and asserts seven structural
+invariants that hold for every input, listed or not. Measured against the two
+previous heads with the same corpus: 20,970 violations on the first, 45,072 on
+the second, 0 now.
+
+### Fixed before release, after the first review
 
 The watch compiler matched every field with its own regular expression over the
 **whole** sentence, so two clauses read the same words and one of them was
@@ -95,12 +139,18 @@ Three more in the same family, all "unknown reported as fine":
 - The catalog test allows a `null` path for a local tool that reaches no endpoint, and for nothing
   else; a red test proves a non-local tool with no path, and a foreign prefix with or without a
   local handler, are still refused.
-- The description gate now audits resource metadata under the full matcher, and resource bodies for
-  hidden text, external links and adversarial steering (overriding the caller's instructions,
-  concealment, exfiltration, spending the caller's credits in a loop), each with a planted-defect
-  control and clean twins. Full instruction phrasing stays OFF bodies deliberately: a description is
-  injected at connect time and nobody chose it, a resource is read only when its URI is asked for,
-  and a recipe that could not name the calls it is a recipe for would be useless.
+- The description gate audits resource metadata under the full matcher, and resource bodies for
+  hidden text and external links. Full instruction phrasing stays OFF bodies deliberately: a
+  description is injected at connect time and nobody chose it, a resource is read only when its URI
+  is asked for, and a recipe that could not name the calls it is a recipe for would be useless.
+- **A claim about the body gate was withdrawn, because it was measured and was false.** Its
+  "adversarial steering" check shipped with five planted defects that were its own five regular
+  expressions restated in English. An independent corpus of ten attacks, written attacks-first with
+  the patterns never consulted, is caught **0 of 10**. That number is now asserted in the test, so
+  the limit cannot rot into a capability nobody re-measured. The check is kept as a mechanical
+  tripwire for literal subversion and encoded payloads, and the control that actually fits the risk
+  is now in place: each playbook body's content hash is pinned, so no body can change without the
+  test failing and a human reading the diff.
 
 ### No tool was added for the credit balance
 

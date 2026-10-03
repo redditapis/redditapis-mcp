@@ -122,7 +122,13 @@ check("NEGATIVE: a bare number is not a score floor", () => {
 // ── compiler: the anchor rule ───────────────────────────────────────────────
 
 check("a description anchored by neither a subreddit nor a keyword is refused", () => {
-  assert.equal(compileWatch("just watch everything").error, "no_anchor");
+  // The REFUSAL is the contract; which of the two refusal codes applies depends
+  // on whether every word could be placed, and both carry an empty filter.
+  for (const s of ["just watch everything", "watch everything"]) {
+    const r = compileWatch(s);
+    assert.ok(["no_anchor", "partial_understanding"].includes(r.error), `${s}: got ${r.error}`);
+    assert.deepEqual(r.filter, {}, `${s}: a refusal must carry no filter`);
+  }
   assert.equal(compileWatch("").error, "empty_description");
   assert.equal(compileWatch(null).error, "empty_description");
   // and the twins that ARE anchored
@@ -235,13 +241,21 @@ check("a lossy compile is never silent: a dropped second keyword is named", () =
 });
 
 check("segment cuts a sentence once, and each field then reads its own span", () => {
+  // Each clause carries its own marker, so the cut is readable on its own: the
+  // first question when a field comes out wrong is whether the CUT or the field
+  // rule was at fault, and that is only answerable if the cut is inspectable.
   assert.deepEqual(
     segment('for pricing except "giveaway" and deliver to slack').map((x) => [x.kind, x.text]),
-    // "and deliver" is the marker, so the clause the sentence hands it is "to slack".
-    [["keyword", "for pricing"], ["exclude", '"giveaway"'], ["deliver", "to slack"]],
+    [["keyword", "for pricing"], ["exclude", 'except "giveaway"'], ["deliver", "and deliver to slack"]],
   );
   assert.deepEqual(segment("for pricing").map((x) => x.kind), ["keyword"]);
   assert.deepEqual(segment("").map((x) => x.kind), []);
+  // An exclusion written FIRST stops where the main clause starts again, which
+  // is what keeps "except spam watch r/SaaS for pricing" from eating all of it.
+  assert.deepEqual(
+    segment("except spam watch for pricing").map((x) => x.kind),
+    ["exclude", "keyword"],
+  );
 });
 
 // ── plan preflight ──────────────────────────────────────────────────────────

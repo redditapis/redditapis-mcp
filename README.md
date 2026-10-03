@@ -169,7 +169,7 @@ Monitors watch **named subreddits or all of Reddit**, for **posts or comments** 
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| `reddit_set_watch` | `POST /api/reddit/monitor/add` (+ webhook create/update/test) | One call instead of three: compiles a plain-words description into a monitor filter, reads this account's plan capabilities, creates the monitor, then registers, points and test-fires the `deliver_to` webhook. The sentence is cut into clauses first, so each part reads only its own words: subreddits as `r/Name` **or a pasted `reddit.com/r/Name` link**, quoted phrases as keyword terms, `except`/`without`/`ignoring` as exclusions, `at least N upvotes` as a score floor, and `comments` / `posts and comments` as the match kind. Refuses a description anchored by neither a subreddit nor a keyword before sending anything, returns `understood` and `compiled_filter` so you can check it, and `notes` names anything it dropped or rewrote. |
+| `reddit_set_watch` | `POST /api/reddit/monitor/add` (+ webhook create/update/test) | One call instead of three: compiles a plain-words description into a monitor filter, reads this account's plan capabilities, creates the monitor, then registers, points and test-fires the `deliver_to` webhook. Quoted phrases are taken out of the sentence first, then it is cut into clauses, so each part reads only its own words: subreddits as `r/Name` **or a pasted `reddit.com/r/Name` link**, quoted phrases as keyword terms, `except`/`without`/`ignoring` as exclusions, `at least N upvotes` as a score floor, `comments` / `posts and comments` as the match kind. **It never returns a filter it cannot fully account for** (see below). Returns `understood` and `compiled_filter` so you can check it, and `notes` names anything it dropped, rewrote or read as a whole phrase. |
 | `reddit_monitor_add` | `POST /api/reddit/monitor/add` | Create a monitor: subreddits to watch plus an optional filter (keyword, author, domain, include/exclude terms, min score, NSFW). Forward-looking only from creation (or from `baseline_item_id`). |
 | `reddit_monitor_list` | `GET /api/reddit/monitor/list` | List every monitor on your account, plus `slots` ({used, total, tier}). |
 | `reddit_monitor_update` | `POST /api/reddit/monitor/update` | Pause/resume (`active`), re-cadence, or replace a monitor's filter. Passing any filter field REPLACES the whole filter -- resupply everything you want kept. |
@@ -180,6 +180,19 @@ Monitors watch **named subreddits or all of Reddit**, for **posts or comments** 
 | `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret. |
 | `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
 | `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
+
+#### `reddit_set_watch` refuses rather than guesses
+
+Every character of your description has to be claimed by exactly one thing: a subreddit, a quoted phrase, a keyword, an exclusion, a score clause, a delivery clause, or a word that carries no filter content. Anything left over means the compiler did not understand the whole sentence, and it returns **no filter at all** rather than a monitor built from the half it did understand.
+
+| outcome | when | what you get |
+|---|---|---|
+| a filter | every word is accounted for | the monitor, plus `understood`, `compiled_filter` and `notes` |
+| `partial_understanding` | some words could not be placed, or two parts of the filter counted the same words twice | the exact unplaced words, what *was* understood, and nothing created |
+| `contradictory_filter` | the same phrase is both watched for and excluded, so the monitor could never deliver | both halves named, and nothing created |
+| `no_anchor` | neither a subreddit nor a keyword | a refusal, before any request is sent |
+
+This matters because a wrong watch is **invisible**: you get a monitor id, a green test delivery, and then either silence forever or a firehose. A refusal that names the words it could not place is recoverable in seconds; a monitor whose keyword is also its exclusion is not noticed for a week. If a description is refused, quote the exact phrase to watch for, write subreddits as `r/Name`, or build the filter directly with `reddit_monitor_add`.
 
 ### Playbooks: three recipes, served as MCP resources
 

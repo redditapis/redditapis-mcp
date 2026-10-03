@@ -47,80 +47,148 @@ import { buildWatchSummary } from "./watch-text.js";
 
 // ── the compiler ────────────────────────────────────────────────────────────
 //
-// SEGMENT FIRST, THEN DERIVE EACH FIELD FROM ITS OWN SPAN. This used to match
-// every field with its own regular expression over the WHOLE sentence, and that
-// design has exactly one failure mode which it produces over and over: two
-// clauses read the same words and one of them is wrong.
+// THE RULE THIS FILE IS BUILT AROUND: THE COMPILER NEVER RETURNS A FILTER IT
+// CANNOT FULLY ACCOUNT FOR.
 //
-// It was found four times before the shape was admitted. "except giveaway with
-// at least 5 upvotes" put the score phrase inside the excluded term. Then
-// 'for pricing except "giveaway"' put the EXCLUDED phrase into `q`, so `q` and
-// `exclude_terms[0]` were the same string and the monitor could never deliver
-// anything, while reporting a monitor id and a green test. Then "for posts
-// about pricing" kept the scaffolding and watched for the literal phrase
-// "posts about pricing". Then 'for "comment moderation"' read the word comment
-// out of the user's own keyword and quietly switched the watch to comments
-// only, missing every post. Patching the pairs one at a time produced three
-// green suites over four live defects, because each patch taught the tests the
-// shape that had just been fixed and nothing about the class.
+// Three rounds of defects were found here, seventeen in total, and every single
+// one had the same observable signature: the compiler consumed part of the
+// input, emitted a filter anyway, and said nothing. The worst of them produced
+// a monitor whose keyword was a single `"` character. None of them was a
+// missing regular expression. They were all the same thing: a compiler that
+// always returns something cannot tell you it did not understand you, and on
+// this feature not understanding you is INVISIBLE. The caller gets a monitor
+// id, a green test delivery, and then either silence forever or a firehose.
 //
-// So the sentence is cut into clauses ONCE, by the markers that start them, and
-// after that every field reads only its own span:
-//   keyword  <- the spans that are not another clause
-//   exclude  <- the span after except / without / ignoring
-//   score    <- the score phrase itself, which consumes only its own words
-//   kind     <- the words left after the subreddits, the quotes and the derived
-//               keywords are removed, so a keyword can never set it
-// A quoted phrase belongs to whichever span contains it, which is what makes
-// an exclusion stay an exclusion.
+// Rounds one and two were both fixed by writing better rules, and both fixes
+// shipped a suite that pinned the sentences that had just been fixed and could
+// not fail on an input nobody had thought of. Round two's rewrite broke nine
+// inputs that round one handled. More rules was never going to end.
 //
-// AND WHEN SOMETHING THE USER WROTE IS DROPPED OR REWRITTEN, IT GETS A NOTE.
-// Every defect above was silent, and silence is what made each one expensive:
-// the result said `watching`, carried a monitor id and a green test delivery,
-// and the watch did nothing. An empty `notes` on a lossy compile is itself the
-// bug, so the note is part of the contract and is asserted per case.
+// So the contract is inverted. Every character of the input is CLAIMED by
+// exactly one thing: a subreddit, a quoted span, a keyword, an exclusion, a
+// score clause, a delivery clause, a word the sentence spends on the match kind,
+// or an explicitly contentless word. Anything left over is RESIDUE, and residue
+// means the compiler refuses with `partial_understanding`, naming the words it
+// could not place and showing what it did understand, instead of guessing.
+//
+// That turns every failure of this file from "a silently wrong monitor that
+// looks fine" into "a refusal that says why". For a feature whose failures are
+// invisible that is the only safe direction, and it is the one property that
+// holds for inputs nobody has thought of yet.
+//
+// ORDER MATTERS AND IS FIXED. Quoted spans are found FIRST and masked, so a
+// marker word, a subreddit or a kind word inside a user's own quotes is
+// invisible to every later step. That is what makes `for "ignore list"`,
+// `for "except this"` and `for "send to production"` ordinary keywords rather
+// than the wreckage they used to be.
 
-// Subreddits, in two forms. A pasted link is how people actually name a
-// community, and reading only the bare form sent the watch SITE-WIDE on a
-// pasted URL while consuming the account's one free site-wide slot.
+// Subreddits, in two forms. The bare form's leading character class deliberately
+// excludes "/", so a path such as docs/r/readme is not a subreddit; only the
+// name itself is claimed, never the quote or bracket in front of it.
 const SUBREDDIT_URL_RE =
   /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)*reddit\.com\/r\/([A-Za-z0-9][A-Za-z0-9_]{1,20})(?![A-Za-z0-9_])\/?/gi;
-// The bare form. The leading class deliberately excludes "/", so a path such as
-// docs/r/readme is not a subreddit; the URL form above is how a real link gets in.
-const SUBREDDIT_RE = /(?:^|[\s,.;:("'[])\/?r\/([A-Za-z0-9][A-Za-z0-9_]{1,20})(?![A-Za-z0-9_])/g;
+const SUBREDDIT_RE = /(^|[\s,.;:("'[])(\/?r\/([A-Za-z0-9][A-Za-z0-9_]{1,20}))(?![A-Za-z0-9_])/g;
 
-// Quoted phrases become terms. Straight double quotes, curly double quotes and
-// curly single quotes only: a straight apostrophe is far more often a
-// contraction ("don't") than a quote, and treating it as one turns half a
-// sentence into a keyword.
+// Quoted phrases. Straight double quotes, curly double quotes and curly single
+// quotes only: a straight apostrophe is far more often a contraction than a
+// quote, and treating it as one turns half a sentence into a keyword.
 const QUOTED_RE = /"([^"]{1,200})"|“([^”]{1,200})”|‘([^’]{1,200})’/g;
 
-// The clause that introduces a keyword.
-const KEYWORD_LEAD_RE =
-  /\b(?:mentions? of|mentioning|that mentions?|who mentions?|talking about|talks about|keyword|about|for)\s+(.+)$/i;
+const KEYWORD_LEAD_SRC =
+  "(?:mentions? of|mentioning|that mentions?|who mentions?|talking about|talks about|keyword|about|for)";
+const KEYWORD_LEAD_RE = new RegExp(`\\b${KEYWORD_LEAD_SRC}\\s+`, "i");
 
-// Scaffolding between a lead word and the phrase actually being watched for:
-// "for POSTS ABOUT pricing", "for ANYTHING MENTIONING kubernetes". Stripped only
-// when the words before the inner lead are scaffolding nouns, so a real keyword
-// that happens to contain "about" or "for" ("a tool for teams") is left alone.
+const LEADING_FILLER_RE = /^(?:the|a|an|any|all|new|every)\s+/i;
 const SCAFFOLD_RE =
-  /^(?:(?:new|all|any|the)\s+)*(?:posts?|comments?|threads?|submissions?|mentions?|anything|anyone|everything|everyone|people|someone|somebody|users?|redditors?)\s+(?:that\s+|which\s+)?(?:about|mentioning|mentions?|discussing|discuss(?:es)?|talking about|talks about|referencing|references?|regarding|on|of)\s+/i;
+  /^(?:(?:new|all|any|the)\s+)*(?:posts?|comments?|threads?|submissions?|mentions?|anything|anyone|everything|everyone|people|someone|somebody|users?|redditors?)(?:\s+and\s+(?:posts?|comments?|threads?|submissions?))?\s+(?:that\s+|which\s+)?(?:about|mentioning|mentions?|discussing|discuss(?:es)?|talking about|talks about|referencing|references?|regarding|on|of)\s+/i;
+// `(^|\s+)` so a tail that is ENTIRELY scaffolding ("for posts") reduces to
+// nothing instead of becoming the keyword "posts".
+const TRAILING_NOISE_RE =
+  /(?:^|\s+)\b(?:posts?|comments?|threads?|submissions?|mentions?|in|on|from|to|anywhere|site[- ]?wide|sitewide|please)\b[\s.]*$/i;
 
 const MIN_SCORE_RE =
   /\b(?:at least|minimum of|min(?:imum)?|over|above)\s+(\d{1,7})\s*\+?\s*(?:upvotes?|points?|score|karma)\b/i;
 const MIN_SCORE_ALT_RE = /\bscore\s+(?:of\s+)?(?:at least|over|above|>=?)\s*(\d{1,7})\b/i;
 
-// Filler an ordinary English clause carries into a keyword.
-const LEADING_FILLER_RE = /^(?:the|a|an|any|all|new|every)\s+/i;
-const TRAILING_NOISE_RE =
-  /\s*\b(?:posts?|comments?|threads?|submissions?|posts? and comments?|mentions?|in|on|from|to|anywhere|site[- ]?wide|sitewide)\b[\s.]*$/i;
+const KIND_WORD_RE = /\b(posts?|submissions?|threads?|comments?)\b/gi;
 
 const RESERVED_SUBREDDITS = new Set(["all", "popular"]);
 
-// The markers that start a clause, and how much of the sentence each consumes.
-//   "rest" runs to the next marker or the end of the sentence.
-//   "self" consumes only its own words, so the text after it is a fresh span
-//          and a keyword written after a score phrase is not thrown away.
+// Words that carry no filter content. A word here is CLAIMED and therefore
+// never residue, so this list is the one place where "the compiler ignored
+// this on purpose" is written down and can be reviewed. It is deliberately a
+// list of contentless English, not a dumping ground for whatever made a test
+// go green: a word added here can never again cause a refusal, so adding a
+// CONTENT word here would re-open exactly the silent-loss hole this design
+// closes.
+export const IGNORABLE = new Set([
+  // the ask itself
+  "watch", "watching", "watches", "monitor", "monitoring", "track", "tracking",
+  "alert", "alerts", "notify", "ping", "tell", "show", "find", "get", "keep",
+  "look", "looking", "see", "catch", "follow", "following", "let", "know",
+  "set", "up", "setup", "create", "add", "make", "start", "please", "want",
+  "need", "would", "like",
+  // determiners, pronouns, prepositions, conjunctions
+  "a", "an", "the", "any", "all", "every", "each", "some", "new", "this",
+  "that", "these", "those", "there", "here", "it", "its", "them", "they",
+  "me", "my", "us", "our", "we", "i", "you", "your",
+  "in", "on", "of", "at", "to", "from", "and", "or", "with", "by", "as",
+  "into", "across", "over", "under", "about", "for", "is", "are", "be",
+  "when", "whenever", "if", "anytime", "while", "whose", "which", "who",
+  // what is being watched, in words that add nothing to a filter
+  "reddit", "subreddit", "subreddits", "sub", "subs", "community", "communities",
+  "everything", "anything", "someone", "anyone", "somebody", "anybody",
+  "people", "person", "folks", "users", "user", "redditors", "redditor",
+  "mention", "mentions", "mentioned", "mentioning", "talking", "talks", "talk",
+  "discussing", "discusses", "discuss", "says", "say", "said", "posting",
+  "keyword", "keywords", "phrase", "phrases", "term", "terms", "word", "words",
+  "eye", "out",
+  // pure adverbial filler
+  "just", "only", "also", "really", "simply", "basically", "actually", "ever",
+  "still", "again", "too", "very", "quite",
+]);
+
+/** Strip contentless words from both ends of a derived term. */
+function trimIgnorable(term) {
+  const parts = String(term).split(/\s+/).filter(Boolean);
+  while (parts.length && IGNORABLE.has(parts[0].toLowerCase().replace(/[^a-z0-9'’-]/g, ""))) parts.shift();
+  while (parts.length && IGNORABLE.has(parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9'’-]/g, ""))) parts.pop();
+  return parts.join(" ");
+}
+
+function cleanTerm(s) {
+  return String(s || "").replace(/\s+/g, " ").replace(/^[,:;.\s]+|[,:;.\s]+$/g, "").trim();
+}
+
+/** A character-level record of what claimed each part of the input. */
+class Claims {
+  constructor(len) { this.by = new Array(len).fill(null); }
+  claim(start, end, by) {
+    for (let i = Math.max(0, start); i < Math.min(this.by.length, end); i++) {
+      if (this.by[i] === null) this.by[i] = by;
+    }
+  }
+  /** Owners, other than `by`, that already hold any character in the range. */
+  conflicts(start, end, by) {
+    const out = new Set();
+    for (let i = Math.max(0, start); i < Math.min(this.by.length, end); i++) {
+      const o = this.by[i];
+      if (o !== null && o !== by) out.add(o);
+    }
+    return [...out];
+  }
+  /** Claim the first occurrence of `needle` at or after `from`, if present. */
+  claimText(text, needle, from, by) {
+    if (!needle) return -1;
+    const i = text.indexOf(needle, from);
+    if (i >= 0) this.claim(i, i + needle.length, by);
+    return i;
+  }
+}
+
+// The markers that start a clause, and how much each consumes. "rest" runs to
+// the next marker OR to a keyword lead, so an exclusion written before the main
+// clause ("except spam watch r/SaaS for pricing") does not swallow it.
 const CLAUSE_MARKERS = [
   { kind: "exclude", consumes: "rest", re: /\b(?:except|excluding|but not|ignoring|ignore|without)\b/gi },
   {
@@ -131,33 +199,19 @@ const CLAUSE_MARKERS = [
   { kind: "deliver", consumes: "rest", re: /\b(?:and\s+(?:deliver|send|post|notify|alert)\b|deliver(?:ed)?\s+to\b|send\s+to\b)/gi },
 ];
 
-function cleanTerm(s) {
-  let t = String(s || "").replace(/\s+/g, " ").trim();
-  t = t.replace(/^[,:;.\s]+|[,:;.\s]+$/g, "");
-  return t;
-}
-
 /**
- * Cut a sentence into clauses. Exported so the tests can assert the cut itself
- * rather than only its consequences: when a field comes out wrong, the question
- * is always whether the clause or the field rule was at fault.
- *
- * @returns {{kind: "keyword"|"exclude"|"score"|"deliver", text: string}[]}
+ * Cut a masked sentence into clauses. Exported so a test can assert the cut
+ * itself: when a field comes out wrong, the first question is always whether
+ * the cut or the field rule was at fault.
  */
-export function segment(text) {
-  const src = String(text || "");
+export function segmentMasked(masked) {
   const hits = [];
   for (const m of CLAUSE_MARKERS) {
-    const re = new RegExp(m.re.source, m.re.flags);
-    for (const hit of src.matchAll(re)) {
-      hits.push({ kind: m.kind, consumes: m.consumes, start: hit.index, end: hit.index + hit[0].length, match: hit[0] });
+    for (const hit of masked.matchAll(new RegExp(m.re.source, m.re.flags))) {
+      hits.push({ kind: m.kind, consumes: m.consumes, start: hit.index, end: hit.index + hit[0].length });
     }
   }
   hits.sort((a, b) => a.start - b.start || b.end - a.end);
-
-  // Drop a marker that starts inside one already accepted, so "at least 5
-  // upvotes" is one score clause and not a score clause plus whatever its words
-  // happen to match.
   const taken = [];
   for (const h of hits) if (!taken.length || h.start >= taken[taken.length - 1].end) taken.push(h);
 
@@ -166,65 +220,64 @@ export function segment(text) {
   for (let i = 0; i < taken.length; i++) {
     const h = taken[i];
     if (h.start < pos) continue;
-    const head = cleanTerm(src.slice(pos, h.start));
-    if (head) out.push({ kind: "keyword", text: head });
+    if (h.start > pos) out.push({ kind: "keyword", start: pos, end: h.start });
     if (h.consumes === "self") {
-      out.push({ kind: h.kind, text: h.match });
+      out.push({ kind: h.kind, start: h.start, end: h.end, markerEnd: h.end });
       pos = h.end;
     } else {
       const next = taken.slice(i + 1).find((n) => n.start >= h.end);
-      const stop = next ? next.start : src.length;
-      out.push({ kind: h.kind, text: cleanTerm(src.slice(h.end, stop)) });
+      // An exclusion or delivery clause also ends where the main clause starts
+      // again, so a marker written first cannot eat the rest of the sentence.
+      const after = masked.slice(h.end, next ? next.start : masked.length);
+      const lead = after.match(new RegExp(`\\b${KEYWORD_LEAD_SRC}\\s+`, "i"));
+      const stop = lead ? h.end + lead.index : (next ? next.start : masked.length);
+      out.push({ kind: h.kind, start: h.start, end: stop, markerEnd: h.end });
       pos = stop;
     }
   }
-  const tail = cleanTerm(src.slice(pos));
-  if (tail) out.push({ kind: "keyword", text: tail });
+  if (pos < masked.length) out.push({ kind: "keyword", start: pos, end: masked.length });
   return out;
 }
 
-/** Every quoted phrase in one span, de-duplicated case-insensitively. */
-function quotedIn(span) {
-  const out = [];
-  for (const m of String(span).matchAll(QUOTED_RE)) {
-    const t = cleanTerm(m[1] ?? m[2] ?? m[3]);
-    if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
-  }
-  return out;
-}
-
-/** The phrase a keyword span is actually about, or null. */
-function keywordFrom(span) {
-  const lead = String(span).match(KEYWORD_LEAD_RE);
-  if (!lead) return null;
-  let tail = cleanTerm(lead[1]).replace(LEADING_FILLER_RE, "");
-  // Strip scaffolding repeatedly, bounded, so "all posts about" reduces fully
-  // without a crafted sentence being able to loop here.
-  for (let i = 0; i < 3 && SCAFFOLD_RE.test(tail); i++) tail = cleanTerm(tail.replace(SCAFFOLD_RE, ""));
-  tail = cleanTerm(tail.replace(TRAILING_NOISE_RE, ""));
-  tail = cleanTerm(tail.replace(TRAILING_NOISE_RE, ""));
-  return tail && tail.length <= 200 ? tail : null;
+/** Back-compat shape for callers that only want the clause kinds and text. */
+export function segment(text) {
+  const t = String(text || "");
+  return segmentMasked(t).map((s) => ({ kind: s.kind, text: cleanTerm(t.slice(s.start, s.end)) }));
 }
 
 /**
  * Compile a plain-words watch description into a monitor filter.
  *
  * Pure: no I/O, no clock, no randomness. Returns the filter the API takes, a
- * plain-English `understood` record of what each phrase became, and `notes`
- * naming anything that was dropped or rewritten.
+ * plain-English `understood` record, `notes` naming anything dropped or
+ * rewritten, an `accounting` record, and `error` when the input could not be
+ * fully accounted for.
  *
  * @param {string} text
- * @returns {{filter: object, understood: object, notes: string[], error: string|null}}
+ * @returns {{filter: object, understood: object, notes: string[], accounting: object, error: string|null}}
  */
 export function compileWatch(text) {
   const notes = [];
   const raw = String(text == null ? "" : text).replace(/\s+/g, " ").trim();
-  if (!raw) {
-    return { filter: {}, understood: {}, notes, error: "empty_description" };
-  }
+  const empty = { filter: {}, understood: {}, notes, accounting: { residue: [], claimed: {} }, error: "empty_description" };
+  if (!raw) return empty;
 
-  // 1. Subreddits, link form first so the link's own text cannot then be read
-  //    as a keyword.
+  const claims = new Claims(raw.length);
+
+  // 1. QUOTED SPANS FIRST, then mask them. Everything after this step reads a
+  //    string in which the user's own quoted words cannot be mistaken for a
+  //    marker, a subreddit or a kind word.
+  const quotedSpans = [];
+  for (const m of raw.matchAll(QUOTED_RE)) {
+    const value = cleanTerm(m[1] ?? m[2] ?? m[3]);
+    quotedSpans.push({ start: m.index, end: m.index + m[0].length, value });
+    claims.claim(m.index, m.index + m[0].length, "quoted");
+  }
+  const maskChars = raw.split("");
+  for (const sp of quotedSpans) for (let i = sp.start; i < sp.end; i++) maskChars[i] = "\u0000";
+  const masked = maskChars.join("");
+
+  // 2. Subreddits, link form first so a link's own text is never read as words.
   const subs = [];
   const dropped = [];
   const addSub = (name) => {
@@ -234,98 +287,186 @@ export function compileWatch(text) {
     }
     if (!subs.some((x) => x.toLowerCase() === name.toLowerCase())) subs.push(name);
   };
-  let body = raw.replace(SUBREDDIT_URL_RE, (_, name) => { addSub(name); return " "; });
-  body = body.replace(SUBREDDIT_RE, (_, name) => { addSub(name); return " "; });
-  body = body.replace(/\s+/g, " ").trim();
+  for (const m of masked.matchAll(SUBREDDIT_URL_RE)) {
+    addSub(m[1]);
+    claims.claim(m.index, m.index + m[0].length, "subreddit");
+  }
+  for (const m of masked.matchAll(SUBREDDIT_RE)) {
+    if (claims.by[m.index + m[1].length] !== null) continue; // already a link
+    addSub(m[3]);
+    // Only the r/Name itself, never the quote or bracket in front of it.
+    claims.claim(m.index + m[1].length, m.index + m[1].length + m[2].length, "subreddit");
+  }
   if (dropped.length) {
     notes.push(
       `r/${dropped.join(", r/")} names Reddit's site-wide listing rather than a subreddit, so it was dropped from the subreddit list; a watch with no subreddit list already covers every subreddit.`,
     );
   }
 
-  // 2. Cut the sentence into clauses. Everything below reads one span only.
-  const spans = segment(body);
-  const keywordSpans = spans.filter((s) => s.kind === "keyword").map((s) => s.text);
-  const excludeSpans = spans.filter((s) => s.kind === "exclude").map((s) => s.text);
+  // 3. Cut into clauses over the MASKED text, then claim each marker.
+  const spans = segmentMasked(masked);
+  for (const sp of spans) {
+    if (sp.kind !== "keyword") claims.claim(sp.start, sp.markerEnd ?? sp.start, `${sp.kind}-marker`);
+    if (sp.kind === "score" || sp.kind === "deliver") claims.claim(sp.start, sp.end, sp.kind);
+  }
 
-  // 3. Keywords, from the keyword spans and nowhere else.
-  const quoted = [];
-  for (const span of keywordSpans) {
-    for (const t of quotedIn(span)) if (!quoted.some((x) => x.toLowerCase() === t.toLowerCase())) quoted.push(t);
+  const quotedIn = (sp) => quotedSpans.filter((qs) => qs.start >= sp.start && qs.end <= sp.end);
+
+  // A SUBREDDIT INSIDE A CLAUSE ENDS THAT CLAUSE, for keywords and exclusions
+  // alike. "about new posts in r/SaaS mentioning churn" is one clause to a
+  // regular expression and two to a reader, and without this the keyword became
+  // the literal string "posts in r/SaaS mentioning churn", double-counting the
+  // subreddit the filter had already taken. "except spam watch r/SaaS for
+  // pricing" did the same to an exclusion.
+  const subSegments = (from, to) => {
+    const cuts = [];
+    let i = from;
+    while (i < to) {
+      if (claims.by[i] === "subreddit") {
+        let j = i;
+        while (j < to && claims.by[j] === "subreddit") j++;
+        cuts.push([i, j]);
+        i = j;
+      } else i++;
+    }
+    const out = [];
+    let start = from;
+    for (const [a, b] of cuts) { if (a > start) out.push([start, a]); start = b; }
+    if (start < to) out.push([start, to]);
+    return out.length ? out : [[from, to]];
+  };
+  const keywordSpans = spans.filter((sp) => sp.kind === "keyword");
+  const excludeSpans = spans.filter((sp) => sp.kind === "exclude");
+
+  // 4. Keywords, from the keyword spans and nowhere else.
+  const quotedKeywords = [];
+  for (const sp of keywordSpans) {
+    for (const qs of quotedIn(sp)) {
+      if (qs.value && !quotedKeywords.some((x) => x.toLowerCase() === qs.value.toLowerCase())) quotedKeywords.push(qs.value);
+    }
   }
 
   let q;
   let includeAny;
-  if (quoted.length === 1) {
-    q = quoted[0];
-  } else if (quoted.length > 1) {
-    includeAny = quoted.slice(0, 50);
+  const bareCandidates = [];
+  const conflicts = [];
+  if (quotedKeywords.length === 1) {
+    q = quotedKeywords[0];
+  } else if (quotedKeywords.length > 1) {
+    includeAny = quotedKeywords.slice(0, 50);
   } else {
-    const candidates = [];
-    for (const span of keywordSpans) {
-      const k = keywordFrom(span);
-      if (k && !candidates.some((x) => x.toLowerCase() === k.toLowerCase())) candidates.push(k);
+    for (const sp of keywordSpans) {
+      for (const [segStart, segEnd] of subSegments(sp.start, sp.end)) {
+        const spanText = raw.slice(segStart, segEnd);
+        const lead = spanText.match(KEYWORD_LEAD_RE);
+        if (!lead) continue;
+        let off = lead.index + lead[0].length;
+        let tail = spanText.slice(off);
+        claims.claim(segStart + lead.index, segStart + off, "keyword-lead");
+        for (const re of [LEADING_FILLER_RE, SCAFFOLD_RE, SCAFFOLD_RE, SCAFFOLD_RE]) {
+          const strip = tail.match(re);
+          if (strip) { claims.claim(segStart + off, segStart + off + strip[0].length, "scaffolding"); off += strip[0].length; tail = tail.slice(strip[0].length); }
+        }
+        // Repeatedly, so a tail of nothing but scaffolding reduces to nothing.
+        for (let n = 0; n < 4; n++) {
+          const trail = tail.match(TRAILING_NOISE_RE);
+          if (!trail) break;
+          claims.claim(segStart + off + trail.index, segStart + off + tail.length, "scaffolding");
+          tail = tail.slice(0, trail.index);
+        }
+        const value = trimIgnorable(cleanTerm(tail));
+        if (value && value.length <= 200) {
+          const at = raw.indexOf(value, segStart + off);
+          // EXACTLY ONE CLAIM PER CHARACTER. A keyword that overlaps something
+          // already taken means the compiler counted the same words twice, so
+          // it did not understand the sentence and must say so.
+          if (at >= 0) {
+            const clash = claims.conflicts(at, at + value.length, "keyword");
+            if (clash.length) conflicts.push({ value, overlaps: clash });
+            claims.claim(at, at + value.length, "keyword");
+          }
+          if (!bareCandidates.some((x) => x.toLowerCase() === value.toLowerCase())) bareCandidates.push(value);
+        }
+      }
     }
-    if (candidates.length) q = candidates[0];
-    if (candidates.length > 1) {
+    if (bareCandidates.length) q = bareCandidates[0];
+    if (bareCandidates.length > 1) {
       notes.push(
-        `The description carries more than one phrase to watch for; ${JSON.stringify(candidates[0])} was used and ${candidates.slice(1).map((c) => JSON.stringify(c)).join(", ")} was not. Quoting each phrase matches any of them.`,
+        `The description carries more than one phrase to watch for; ${JSON.stringify(bareCandidates[0])} was used and ${bareCandidates.slice(1).map((c) => JSON.stringify(c)).join(", ")} was not. Quoting each phrase matches any of them.`,
       );
     }
   }
 
-  // 4. Exclusions, from the exclusion spans and nowhere else. A quoted
-  //    exclusion is the phrase; otherwise the span splits on list punctuation.
-  let excludeTerms;
+  // 5. Exclusions, from the exclusion spans and nowhere else.
   const exTerms = [];
-  for (const span of excludeSpans) {
-    const qs = quotedIn(span);
-    const parts = qs.length
-      ? qs
-      : span.split(/\s*(?:,|\bor\b|\band\b)\s*/i).map((p) => cleanTerm(p)).filter(Boolean);
-    for (const p of parts) {
-      if (p.length <= 200 && !exTerms.some((x) => x.toLowerCase() === p.toLowerCase())) exTerms.push(p);
+  for (const sp of excludeSpans) {
+    const qs = quotedIn(sp);
+    let parts;
+    if (qs.length) {
+      parts = qs.map((x) => x.value);
+    } else {
+      parts = [];
+      for (const [a, b] of subSegments(sp.markerEnd ?? sp.start, sp.end)) {
+        for (const piece of raw.slice(a, b).split(/\s*(?:,|\bor\b|\band\b)\s*/i)) {
+          const t = trimIgnorable(cleanTerm(piece));
+          if (t) parts.push(t);
+        }
+      }
     }
+    for (const t of parts) {
+      if (t.length <= 200 && !exTerms.some((x) => x.toLowerCase() === t.toLowerCase())) exTerms.push(t);
+    }
+    claims.claim(sp.start, sp.end, "exclude");
   }
-  if (exTerms.length) excludeTerms = exTerms.slice(0, 50);
+  const excludeTerms = exTerms.length ? exTerms.slice(0, 50) : undefined;
 
-  // 5. Score floor, from the score spans the cut already isolated.
+  // 6. Score floor, from the score spans the cut already isolated.
   let minScore;
-  for (const span of spans.filter((x) => x.kind === "score").map((x) => x.text)) {
-    const ms = span.match(MIN_SCORE_RE) || span.match(MIN_SCORE_ALT_RE);
+  for (const sp of spans.filter((x) => x.kind === "score")) {
+    const t = raw.slice(sp.start, sp.end);
+    const ms = t.match(MIN_SCORE_RE) || t.match(MIN_SCORE_ALT_RE);
     if (ms) { minScore = Number(ms[1]); break; }
   }
 
-  // 6. Match kind, LAST and only from what is left over.
-  //
-  // This used to read the whole sentence, so 'for "comment moderation"' found
-  // the word comment inside the user's own keyword and switched the watch to
-  // comments only, missing every post, with nothing said. The kind is a
-  // property of how the sentence describes the watch, never of the phrase being
-  // watched for, so the subreddits, every quoted span and every derived term
-  // come out before the question is asked.
-  let kindSource = body;
-  for (const span of keywordSpans) {
-    for (const t of quotedIn(span)) kindSource = kindSource.split(t).join(" ");
+  // 7. Match kind, from the ORIGINAL positions of the words the sentence spends
+  //    on it. Never from a string with substrings deleted: deleting the keyword
+  //    "post" out of "posts and comments" left "s and comments" and flipped a
+  //    posts-and-comments watch to comments only.
+  let saysComments = false;
+  let saysPosts = false;
+  for (const m of masked.matchAll(KIND_WORD_RE)) {
+    const owner = claims.by[m.index];
+    if (owner === "keyword" || owner === "exclude" || owner === "quoted") continue;
+    if (/^comments?$/i.test(m[0])) saysComments = true; else saysPosts = true;
+    claims.claim(m.index, m.index + m[0].length, "kind");
   }
-  for (const t of [q, ...(includeAny || []), ...(exTerms || [])]) {
-    if (t) kindSource = kindSource.split(t).join(" ");
-  }
-  const saysComments = /\bcomments?\b/i.test(kindSource);
-  const saysPosts = /\bposts?\b|\bsubmissions?\b|\bthreads?\b/i.test(kindSource);
   let kind;
   if (saysComments && saysPosts) kind = "both";
   else if (saysComments) kind = "comment";
 
+  // 8. Contentless words are claimed, so they are never residue.
+  for (const m of raw.matchAll(/[A-Za-z0-9][A-Za-z0-9'’_-]*/g)) {
+    if (IGNORABLE.has(m[0].toLowerCase())) claims.claim(m.index, m.index + m[0].length, "ignorable");
+  }
+
+  // 9. THE ADMISSION GATE. Any word with an unclaimed character is residue, and
+  //    residue means the compiler did not understand the whole input, so it
+  //    returns nothing to act on.
+  const residue = [];
+  for (const m of raw.matchAll(/[A-Za-z0-9][A-Za-z0-9'’_-]*/g)) {
+    let covered = true;
+    for (let i = m.index; i < m.index + m[0].length; i++) if (claims.by[i] === null) { covered = false; break; }
+    if (!covered) residue.push(m[0]);
+  }
+
   const filter = {};
   if (subs.length) filter.subreddit = subs.slice(0, 50);
   if (q) filter.q = q;
-  if (includeAny) filter.include_any = includeAny.slice(0, 50);
+  if (includeAny) filter.include_any = includeAny;
   if (excludeTerms) filter.exclude_terms = excludeTerms;
   if (kind) filter.kind = kind;
   if (minScore !== undefined) filter.min_score = minScore;
 
-  const anchored = Boolean(filter.subreddit || filter.q || filter.include_any);
   const understood = {
     subreddits: filter.subreddit || null,
     keyword: filter.q || null,
@@ -336,7 +477,46 @@ export function compileWatch(text) {
     scope: filter.subreddit ? "named subreddits" : "every subreddit",
   };
 
-  return { filter, understood, notes, error: anchored ? null : "no_anchor" };
+  const byClaim = {};
+  for (const c of claims.by) if (c) byClaim[c] = (byClaim[c] || 0) + 1;
+  // A FILTER THAT CANNOT EVER MATCH IS NOT A FILTER. Found by the generated
+  // corpus, not by anyone's list: "watch for X ignoring X" compiles perfectly,
+  // every word accounted for, and produces a monitor whose keyword is also its
+  // exclusion. It can never deliver, and the caller gets a monitor id, a green
+  // test delivery and silence, which is the exact failure this whole file is
+  // built to make impossible. The compiler understood every word here, so this
+  // is not partial understanding: the request contradicts itself, and the two
+  // halves are named rather than one of them being guessed away.
+  // AN UNQUOTED KEYWORD IS A FREE-TEXT RUN, so it absorbs whatever follows the
+  // lead word: "for pricing every tuesday at noon" becomes a keyword nothing
+  // says. The compiler cannot know which half was meant and will not guess, but
+  // it will not be silent either: the phrase it took is named, and the result
+  // text repeats it, so a wrong reading is visible before the monitor is built
+  // rather than after a week of no deliveries.
+  if (q && !quotedKeywords.length && q.split(/\s+/).length > 3) {
+    notes.push(
+      `The keyword was read from unquoted words as the whole phrase ${JSON.stringify(q)}, which is matched literally. Quoting the exact phrase pins it.`,
+    );
+  }
+
+  const wanted = [q, ...(includeAny || [])].filter(Boolean);
+  const contradictions = [];
+  for (const w of wanted) {
+    for (const t of excludeTerms || []) {
+      if (w.toLowerCase() === t.toLowerCase()) contradictions.push(w);
+    }
+  }
+
+  const accounting = { residue, conflicts, contradictions, claimed: byClaim, input: raw };
+
+  if (residue.length || conflicts.length) {
+    return { filter: {}, understood, notes, accounting, error: "partial_understanding" };
+  }
+  if (contradictions.length) {
+    return { filter: {}, understood, notes, accounting, error: "contradictory_filter" };
+  }
+  const anchored = Boolean(filter.subreddit || filter.q || filter.include_any);
+  return { filter, understood, notes, accounting, error: anchored ? null : "no_anchor" };
 }
 
 // ── plan preflight ──────────────────────────────────────────────────────────
@@ -432,9 +612,30 @@ export function createSetWatchHandler({ callEndpoint }) {
 
     // 1. Compile. No network call has happened yet, so a sentence that cannot
     //    be compiled costs nothing and the refusal names the missing half.
-    const { filter, understood, notes, error } = compileWatch(watch);
+    const { filter, understood, notes, accounting, error } = compileWatch(watch);
     if (error === "empty_description") {
       return fail("No watch description was given. A watch is built from a sentence naming a subreddit, a keyword, or both.", { understood });
+    }
+    // THE ADMISSION GATE, surfaced. The compiler returns no filter it cannot
+    // fully account for, so the caller is told which words could not be placed
+    // and what was understood, and can rephrase or build the monitor directly
+    // with reddit_monitor_add. Nothing was created and no request was sent.
+    if (error === "partial_understanding") {
+      const r = accounting?.residue || [];
+      const c = accounting?.conflicts || [];
+      return fail(
+        `Part of the description could not be placed, so nothing was created and no request was sent. ` +
+          (r.length ? `Unplaced: ${r.map((w) => JSON.stringify(w)).join(", ")}. ` : "") +
+          (c.length ? `Counted twice: ${c.map((x) => JSON.stringify(x.value)).join(", ")}. ` : "") +
+          `What was understood is below. Quoting the exact phrase to watch for, and writing subreddits as r/Name, usually resolves it; reddit_monitor_add takes a filter directly.`,
+        { understood, accounting },
+      );
+    }
+    if (error === "contradictory_filter") {
+      return fail(
+        `The description both watches for and excludes ${(accounting?.contradictions || []).map((w) => JSON.stringify(w)).join(", ")}, so the monitor could never deliver anything. Nothing was created and no request was sent.`,
+        { understood, accounting },
+      );
     }
     if (error === "no_anchor") {
       return fail(
