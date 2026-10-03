@@ -803,6 +803,66 @@ export const TOOLS = [
     shape: {},
   },
   {
+    // ONE CALL INSTEAD OF THREE. Standing up a watch today means composing a
+    // webhook registration, a monitor creation and a test delivery, each with
+    // its own vocabulary, and the first one a caller gets wrong fails late as a
+    // 400 or a 402. This compiles a sentence into those calls and checks the
+    // two rules that need no round trip (the anchor rule and the reserved
+    // 'all' sentinel) before any request is sent. The compiler itself is in
+    // src/watch.js and is a set of regular expressions, not a model, so the
+    // same sentence always compiles to the same filter.
+    //
+    // The PATH is monitor/add, the call that makes the watch exist, so the
+    // catalog's public-mount check still covers this tool. The local handler
+    // makes the other calls itself; `watch`, `deliver_to` and `test_delivery`
+    // are consumed locally and never sent as fields of a monitor request.
+    name: "reddit_set_watch",
+    path: "/api/reddit/monitor/add",
+    method: "POST",
+    write: true,
+    local: "set_watch",
+    localArgs: ["watch", "deliver_to", "test_delivery"],
+    description:
+      "Creates a Reddit watch from a plain-words description in one call: the description is compiled into a monitor filter, the account's own plan capabilities are read, the monitor is created, and an HTTPS delivery target given in `deliver_to` is registered, pointed at this monitor and test-fired. The compiler reads subreddit names written as r/Name, quoted phrases as keyword terms (two or more become an any-of set), 'comments' or 'posts and comments' as the match kind, terms after 'except' or 'ignoring' as exclusions, and 'at least N upvotes' as a score floor; everything it derived comes back in `understood` and `compiled_filter`. A description naming neither a subreddit nor a keyword is refused before any request is sent, because a monitor is anchored by one or the other. On an account whose plan carries no subreddit-scoped watches, a description that names subreddits and also carries a keyword is built over every subreddit instead, and the swap is reported in `notes`. Monitor and webhook calls are not metered. The result carries the created monitor, the delivery target and its test outcome, and the account's current slot and capability figures.",
+    shape: {
+      watch: z.string().min(1).max(600).describe(
+        "The watch, in plain words, e.g. 'watch r/SaaS and r/startups for \"pricing page\" except giveaways' or 'every comment mentioning \"cold email\" with at least 5 upvotes'. Subreddits are written as r/Name, keyword terms are quoted, 'comments' or 'posts and comments' sets the match kind. Required.",
+      ),
+      deliver_to: z.string().url().optional().describe(
+        "Optional HTTPS URL that receives matches. A hooks.slack.com or discord.com/api/webhooks URL has its payload shape inferred from the host; any other HTTPS URL receives the generic signed JSON envelope. Absent, matches go to every active webhook already on the account.",
+      ),
+      cadence_s: z.number().int().positive().optional().describe(
+        "Optional poll interval in seconds. A value below the plan tier's floor is clamped up to that floor. Absent, the tier default applies.",
+      ),
+      test_delivery: z.boolean().optional().describe(
+        "false skips the one-off test delivery that otherwise follows a successful `deliver_to` registration. Default true. Ignored when no `deliver_to` is given.",
+      ),
+    },
+  },
+  {
+    // NO ENDPOINT AND NO NETWORK CALL. Provenance is something this process
+    // observed: which tool reached which endpoint, when the response arrived,
+    // the upstream request id and the size. There is no provenance endpoint to
+    // call and no cache to read an age out of (src/provenance.js records why in
+    // full), so this tool reads an in-memory ledger and nothing else. `path` is
+    // null for that reason, and the catalog test refuses a null path on any
+    // tool that is not local.
+    name: "reddit_explain",
+    path: null,
+    local: "explain",
+    localArgs: ["tool", "limit"],
+    description:
+      "Returns the provenance of the rows this server has already fetched in this session: per completed call, the tool that made it, the endpoint it reached, the timestamp the response arrived, how many seconds old that copy now is, the upstream request id and the response size. Provenance is recorded per call, so every row in one response shares it. The redditapis.com read path holds no response cache for customer reads, so each call is served live at the moment it runs and the age reported here is the age of this session's copy of the rows rather than the age of a stored row; `response_cache` says so in the result. The ledger holds the 20 most recent completed calls, lives in memory, starts empty, is scoped to this server and carries no other caller's calls. How long each category of data is kept is published at https://www.redditapis.com/privacy-and-data-handling.",
+    shape: {
+      tool: z.string().min(1).max(80).optional().describe(
+        "Optional tool name that restricts the result to calls made by that tool. Absent, the most recent calls by any tool are returned.",
+      ),
+      limit: z.number().int().min(1).max(20).optional().describe(
+        "Optional count of calls returned, 1 to 20, newest first. Default 5.",
+      ),
+    },
+  },
+  {
     name: "reddit_feedback_get",
     path: "/feedback/{id}",
     description:

@@ -14,6 +14,9 @@ import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { TOOLS, buildQuery, buildPath, buildBody, buildHeaders, takesInlineCredentials } from "./tools.js";
 import { createFeedbackHandler, sameFailure } from "./feedback.js";
+import { createSetWatchHandler } from "./watch.js";
+import { createReadLedger, createExplainHandler } from "./provenance.js";
+import { registerPlaybooks } from "./playbooks.js";
 
 // Read from package.json rather than a hand-maintained literal -- this drifted
 // silently to "0.1.0" while the published package reached 0.1.12, so every
@@ -232,6 +235,14 @@ export function createServer({
   // Per server, so one caller's failure never reaches another caller's draft.
   let lastError = null;
 
+  // Provenance of what this caller has already fetched: which tool reached
+  // which endpoint, when the response arrived, the upstream request id and the
+  // size. Per server for the same reason lastError is (see the file header);
+  // in memory only, bounded, and read back by reddit_explain. See
+  // src/provenance.js for why this is an observation of OUR calls and not a
+  // cache age: there is no response cache on the read path to age.
+  const readLedger = createReadLedger();
+
   // REST call. Resolves any {param} path placeholders from args, and for GET
   // sends the rest as a query string; for POST it sends the rest as a JSON body
   // (see buildBody -- `tool` is passed through only to read its
@@ -321,6 +332,17 @@ export function createServer({
       // failure's endpoint or request id (review 2026-09-04: a remove's draft
       // carried the previous update's 404).
       lastError = null;
+      // Recorded only on a SUCCESS, because a failed call produced no rows and
+      // so has no provenance to explain. The tool name comes from the catalog
+      // entry the caller invoked; a composite tool passes its own name on each
+      // leg, so a leg is attributed to the tool that actually made it.
+      readLedger.record({
+        tool: tool?.name || "(unnamed)",
+        path,
+        method,
+        requestId: res.headers.get("x-request-id") || null,
+        bytes: body.length,
+      });
       return { content: [{ type: "text", text: body }] };
     } catch (err) {
       if (!isWrite && attempt < retryDelaysMs.length && transientNetwork(err)) {
@@ -356,7 +378,16 @@ export function createServer({
       getLastError: () => lastError,
       env: feedbackEnv,
     }),
+    set_watch: createSetWatchHandler({ callEndpoint }),
+    explain: createExplainHandler({ listReads: () => readLedger.list() }),
   };
+
+  // The playbooks are RESOURCES, not tools: the MCP specification makes
+  // resources application-driven, which is the right primitive for a recipe a
+  // host or a person picks by name. Registering them here is what puts them in
+  // the same catalog every caller receives. See src/playbooks.js for why the
+  // metadata and the contents are held to different standards.
+  registerPlaybooks(server);
 
   for (const tool of TOOLS) {
     // Filtered at registration, so a hidden tool is absent from tools/list and
@@ -393,5 +424,12 @@ export function createServer({
     );
   }
 
-  return { server, callEndpoint, getLastError: () => lastError, baseUrl: BASE_URL, timeoutMs: REQUEST_TIMEOUT_MS };
+  return {
+    server,
+    callEndpoint,
+    getLastError: () => lastError,
+    getReads: () => readLedger.list(),
+    baseUrl: BASE_URL,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  };
 }

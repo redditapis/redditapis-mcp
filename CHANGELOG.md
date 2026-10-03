@@ -1,5 +1,164 @@
 # Changelog
 
+## 0.10.0 (2026-10-02)
+
+### The watch compiler refuses rather than guesses
+
+Seventeen defects were found in this compiler across three review rounds. Every
+single one had the same signature: it consumed part of the description, emitted
+a filter anyway, and said nothing. The worst produced a monitor whose keyword
+was a single `"` character.
+
+Rounds one and two were both fixed by writing better rules, and both shipped a
+suite that pinned the sentences just fixed and could not fail on an input nobody
+had thought of. Round two's rewrite broke nine inputs round one handled. More
+rules was never going to end.
+
+**So the contract is inverted.** Every character of a description must be
+claimed by exactly one thing: a subreddit, a quoted phrase, a keyword, an
+exclusion, a score clause, a delivery clause, or a word with no filter content.
+Anything left over, or counted twice, and the compiler returns **no filter at
+all** and names the words it could not place. A description that both watches
+for and excludes the same phrase is refused too, because that monitor could
+never deliver.
+
+That inverts the failure mode from "a silently wrong monitor that looks fine" to
+"a refusal that says why", which for this feature is the only safe direction:
+every failure here is invisible, and the caller otherwise gets a monitor id, a
+green test delivery and then silence or a firehose.
+
+Also fixed in the same pass, all found by the change above or by the corpus:
+quoted phrases are now taken out of the sentence **before** anything else reads
+it, so a marker word, a subreddit or a kind word inside your own quotes is just
+text (`for "ignore list"`, `for "except this"`, `for "send to production"` were
+all wrecked by this); the match kind is read from the original word positions
+rather than a string with substrings deleted, which had turned `posts and
+comments for "post"` into a comments-only watch; a subreddit inside a keyword or
+exclusion clause ends that clause instead of being swallowed into the term; and
+a bare multi-word keyword is reported in `notes`, because an unquoted keyword is
+a free-text run and absorbs whatever follows it.
+
+**The suite that could not see any of this has been replaced, not extended.**
+`test/watch-invariants.test.mjs` generates 28,511 sentences from pieces chosen
+to collide (marker words inside quotes, subreddits inside quotes, markers before
+the main clause, unicode quotes, conjunctions) and asserts seven structural
+invariants that hold for every input, listed or not. Measured against the two
+previous heads with the same corpus: 20,970 violations on the first, 45,072 on
+the second, 0 now.
+
+### Fixed before release, after the first review
+
+The watch compiler matched every field with its own regular expression over the
+**whole** sentence, so two clauses read the same words and one of them was
+wrong. Four HIGH defects, one cause, each one silent:
+
+- `for pricing except "giveaway"` put the EXCLUDED phrase into `q`, so `q` and
+  `exclude_terms[0]` were the same string and the monitor could never deliver,
+  while the caller got a monitor id, a green test delivery, and then silence.
+- `for posts about pricing`, the most natural sentence there is, watched for the
+  literal phrase "posts about pricing".
+- `for posts with at least 5 upvotes about pricing` dropped the keyword
+  entirely, leaving a firehose of every post over the score floor.
+- `for "comment moderation"` read the word *comment* out of the caller's own
+  keyword and switched the watch to comments only, missing every post.
+- A pasted `reddit.com/r/X` link was not read as a subreddit, so the watch went
+  site-wide and consumed the account's one free site-wide slot.
+
+The sentence is now cut into clauses **once** and every field reads only its own
+span; the match kind is derived last, from what is left after the subreddits,
+the quoted spans and the derived terms are removed, so a keyword can never set
+it. Patching the pairs one at a time had already produced three green suites
+over four live defects, which is why the fix is the structure and not another
+rule.
+
+**And a lossy compile is no longer silent.** Every one of the above reported
+`notes: []`. When the compiler drops or rewrites something the description
+carries, it says so, and that is asserted per case.
+
+Three more in the same family, all "unknown reported as fine":
+
+- The webhook signing secret was read only to set a boolean and then thrown
+  away, while the result asserted the secret was in it. The API returns that
+  secret exactly once and the webhook list never returns it again, so a watch
+  set up this way left its owner permanently unable to verify a delivery
+  signature, and told them otherwise. It is now returned as `delivery.secret`,
+  and the sentence is tied to the value rather than to a flag about it.
+- A test delivery whose body could not be read counted as a SUCCESS
+  (`ok !== false`). It is now tri-state, and an unreadable answer says the
+  target is unconfirmed.
+- When the created monitor came back without an id, the re-point was skipped
+  with no note while the result still reported a registered target.
+
+### Added
+
+- **`reddit_set_watch`: one call where standing up a watch took three.** It compiles a plain-words
+  description into a monitor filter, reads the account's own plan capabilities, creates the monitor,
+  then registers, points and test-fires an optional `deliver_to` webhook. The compiler is a set of
+  regular expressions, not a model, so the same sentence always compiles to the same filter, and
+  everything it derived comes back in `understood` and `compiled_filter` for a person to check. It
+  reads `r/Name` subreddits, quoted phrases as keyword terms (two or more become an any-of set),
+  `comments` / `posts and comments` as the match kind, terms after `except` or `ignoring` as
+  exclusions, and `at least N upvotes` as a score floor.
+  - **The two rules that need no round trip are checked locally.** A description anchored by neither
+    a subreddit nor a keyword is refused with zero network calls, and `r/all` is dropped as Reddit's
+    site-wide listing rather than sent to earn a `subreddit_reserved` 400.
+  - **Plan awareness is a field read, not a guess.** `GET /api/reddit/monitor/list` is free and its
+    `slots` object states the account's capabilities outright (`scoped_allowed`, `comments_allowed`,
+    `sitewide_allowed`, the cadence floor and the distinct-subreddit allowance). On a plan without
+    subreddit-scoped watches, a description that names subreddits and also carries a keyword is
+    built over every subreddit instead, and the swap is reported; a description with no keyword has
+    no equivalent, so it goes as written and the API answers for itself. An unreadable `slots`
+    object rewrites nothing.
+  - **Ordered for the failure mode.** The monitor is created before the webhook, because a monitor
+    with no `webhook_ids` still delivers to every active webhook on the account, so a watch survives
+    a failed webhook registration. The reverse order would strand a webhook pointing at nothing when
+    the monitor hits a slot limit.
+- **Three playbooks as MCP resources**, at `playbook://competitor-mention-watch`,
+  `playbook://subreddit-audit` and `playbook://pain-point-mining`. Resources rather than tools
+  because the protocol makes resources application-driven: a host reads one only when it is asked
+  for by URI, and nothing is prefetched. Each is built only from calls this package already exposes,
+  and a test checks every tool each playbook names against the live catalog, so a recipe cannot
+  quietly start pointing at something that does not exist.
+- **`reddit_explain`: where the rows you are holding came from.** Per completed call, the tool that
+  made it, the endpoint, when the response arrived, how many seconds old that copy now is, the
+  upstream request id and the response size. It reaches no endpoint: the ledger is in memory, holds
+  the 20 most recent calls, starts empty and is scoped to one server, so one caller's endpoints and
+  request ids never reach another's.
+  - **It reports no cache age, because there is no cache.** The read path holds no response cache for
+    customer reads, so every call is served live and the age that exists is the age of this
+    session's copy of the rows, not of a stored row. The result says `response_cache: "none"` rather
+    than implying a freshness guarantee nothing provides, and it points at the published retention
+    table instead of restating a figure that would drift the day the table changes.
+
+### Changed
+
+- The README's monitoring note said monitors were "subreddit-scoped, posts-only" with "no
+  all-of-Reddit keyword watch, no comment monitoring yet", and that a webhook needs an active plan.
+  All three have been untrue since 2026-08-13 and the note ships in the npm tarball. It now
+  describes the free entitlement, site-wide and comment watching, and the full `slots` object.
+- The catalog test allows a `null` path for a local tool that reaches no endpoint, and for nothing
+  else; a red test proves a non-local tool with no path, and a foreign prefix with or without a
+  local handler, are still refused.
+- The description gate audits resource metadata under the full matcher, and resource bodies for
+  hidden text and external links. Full instruction phrasing stays OFF bodies deliberately: a
+  description is injected at connect time and nobody chose it, a resource is read only when its URI
+  is asked for, and a recipe that could not name the calls it is a recipe for would be useless.
+- **A claim about the body gate was withdrawn, because it was measured and was false.** Its
+  "adversarial steering" check shipped with five planted defects that were its own five regular
+  expressions restated in English. An independent corpus of ten attacks, written attacks-first with
+  the patterns never consulted, is caught **0 of 10**. That number is now asserted in the test, so
+  the limit cannot rot into a capability nobody re-measured. The check is kept as a mechanical
+  tripwire for literal subversion and encoded payloads, and the control that actually fits the risk
+  is now in place: each playbook body's content hash is pinned, so no body can change without the
+  test failing and a human reading the diff.
+
+### No tool was added for the credit balance
+
+`reddit_account_me` already returns `credits_remaining`, `credits_used` and `total_requests`, is
+free, is not metered and is already named in the server instructions. A second tool over the same
+endpoint would be a second name for one job and one more entry competing for attention in the
+catalog, so there is none.
+
 ## 0.9.1 (2026-10-02)
 
 - Feedback reports no longer ask for the user's words: `reddit_feedback_send` `details` is three
