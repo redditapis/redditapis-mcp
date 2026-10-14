@@ -117,7 +117,7 @@ const API_503 = '{"error":"upstream_unavailable","message":"This request could n
   assert.equal(r.isError, true);
   assert.equal(calls.length, 1);
   assert.deepEqual(sleeps, []);
-  assert.match(r.content[0].text, /keep at most 2 reads in flight/);
+  assert.match(r.content[0].text, /under the limit the message names/);
   ok("a 429 too_many_concurrent_reads is never retried and tells the model to lower concurrency");
 }
 {

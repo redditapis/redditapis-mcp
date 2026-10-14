@@ -134,7 +134,7 @@ export function hintFor(status, path) {
     for (const [re, hint] of NOT_FOUND_HINTS) if (re.test(path || "")) return hint;
     return DEFAULT_NOT_FOUND_HINT;
   }
-  if (status === 429) return " (slow down: wait the retry_after seconds, keep at most 2 reads in flight per key, then retry)";
+  if (status === 429) return " (slow down: wait the retry_after seconds, keep this key's reads in flight under the limit the message names, then retry)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
   return "";
 }
