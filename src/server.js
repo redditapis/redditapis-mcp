@@ -134,7 +134,7 @@ export function hintFor(status, path) {
     for (const [re, hint] of NOT_FOUND_HINTS) if (re.test(path || "")) return hint;
     return DEFAULT_NOT_FOUND_HINT;
   }
-  if (status === 408) return " (the read did not complete in time and was not billed; retry after the retry_after seconds)";
+  if (status === 408) return " (the read did not complete in time; retry after the retry_after seconds)";
   if (status === 429) return " (slow down: wait the retry_after seconds, keep this key's reads in flight under the limit the message names, then retry)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
   return "";
@@ -280,8 +280,9 @@ export function createServer({
     // An API restart makes the gateway answer an HTML 502/503 or refuse the
     // connection for a short window. A READ is retried through it; timeouts and
     // writes never are, so a request the API may already have handled is never sent
-    // twice (a gateway 504 is not retried for that reason). The one API JSON error
-    // that IS retried is the read-side 503 upstream_unavailable below (0.10.1).
+    // twice (a gateway 504 is not retried for that reason). The API JSON errors
+    // that ARE retried, once, are the read-side 503 upstream_unavailable (0.10.1)
+    // and 408 upstream_timeout (0.10.2) below.
     // Only a REFUSED connection is retried: the request never reached the API,
     // so it cannot have been handled or billed. A reset, a broken pipe or a
     // socket dropped mid-answer can all happen after the API did the work, and
