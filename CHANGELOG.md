@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.1 (2026-10-14)
+
+### One bounded retry on the API's transient 503, and a clearer 429
+
+A read refused by the API with `503 {"error":"upstream_unavailable"}` (the body says it
+was not billed and names `retry_after`) is now retried once after that many seconds
+(clamped 1..5) before the error reaches the model; measured on 2026-10-14, a per-read
+refusal of about 1 in 3 showed up as failed tool calls that one retry turns into slow
+successes. Writes are never retried, any other 503 is never retried, and the gateway
+retries are unchanged. A `429` now tells the model to lower concurrency ("keep at most 2
+reads in flight per key") and wait the `retry_after`, matching the API's
+`too_many_concurrent_reads` answer.
+
 ## 0.10.0 (2026-10-02)
 
 ### The watch compiler refuses rather than guesses

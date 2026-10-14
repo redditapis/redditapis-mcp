@@ -134,7 +134,7 @@ export function hintFor(status, path) {
     for (const [re, hint] of NOT_FOUND_HINTS) if (re.test(path || "")) return hint;
     return DEFAULT_NOT_FOUND_HINT;
   }
-  if (status === 429) return " (rate limited. Wait a few seconds and retry, or reduce request frequency)";
+  if (status === 429) return " (slow down: wait the retry_after seconds, keep at most 2 reads in flight per key, then retry)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
   return "";
 }
@@ -287,9 +287,22 @@ export function createServer({
     const RETRYABLE_NET = new Set(["ECONNREFUSED"]);
     const gatewayFailure = (status, text) =>
       (status === 502 || status === 503) && /^\s*<(!doctype|html)/i.test(text);
+    // The API's own transient refusal of a READ: 503 with error upstream_unavailable.
+    // Its body says the call was not billed and names retry_after, so ONE retry after
+    // that many seconds (clamped 1..5) never double-bills and turns a per-read refusal
+    // into a slow success instead of a failed tool call (0.10.1). Never a write, never
+    // a 429 too_many_concurrent_reads (that one asks for less concurrency, not a retry).
+    const apiTransientRead = (status, text) =>
+      status === 503 && /"error"\s*:\s*"upstream_unavailable"/.test(text);
+    const retryAfterMs = (text) => {
+      const m = /"retry_after"\s*:\s*(\d+(?:\.\d+)?)/.exec(text);
+      const s = m ? Number(m[1]) : 2;
+      return Math.min(5, Math.max(1, Number.isFinite(s) ? s : 2)) * 1000;
+    };
     const transientNetwork = (err) =>
       !gotResponse && err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);
     let attempt = 0;
+    let apiRetried = false;
     let gotResponse = false;
     for (;;) {
     gotResponse = false;
@@ -302,6 +315,12 @@ export function createServer({
       if (!isWrite && attempt < retryDelaysMs.length && gatewayFailure(res.status, body)) {
         clearTimeout(timer);
         await sleepImpl(retryDelaysMs[attempt++]);
+        continue;
+      }
+      if (!isWrite && !apiRetried && apiTransientRead(res.status, body)) {
+        clearTimeout(timer);
+        apiRetried = true;
+        await sleepImpl(retryAfterMs(body));
         continue;
       }
       if (!res.ok) {

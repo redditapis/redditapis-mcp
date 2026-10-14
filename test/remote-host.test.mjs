@@ -78,6 +78,60 @@ const mk = (fetchImpl, extra = {}) =>
   assert.equal(calls.length, 1);
   ok("a WRITE is never retried, even through a gateway 502");
 }
+// 0.10.1: the API's own transient 503 upstream_unavailable on a READ gets ONE retry
+// after its retry_after; a 429 too_many_concurrent_reads never does.
+const API_503 = '{"error":"upstream_unavailable","message":"This request could not be completed right now. It was not billed. Please retry shortly.","retry_after":2}';
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503 }, { status: 200, body: '{"posts":[]}' }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, undefined);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(sleeps, [2000], "waits the body's retry_after seconds, not the gateway delays");
+  ok("a read refused with the API's JSON 503 upstream_unavailable is retried once and returns the real answer");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503 }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 2, "exactly one retry, then the error is reported");
+  assert.match(r.content[0].text, /upstream_unavailable/);
+  ok("the API transient retry is bounded to one");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: '{"error":"upstream_unavailable","retry_after":60}' }, { status: 200, body: "{}" }]);
+  await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.deepEqual(sleeps, [5000], "retry_after is clamped to 5 s");
+  const { fetchImpl: f2 } = seq([{ status: 503, body: '{"error":"upstream_unavailable"}' }, { status: 200, body: "{}" }]);
+  sleeps.length = 0;
+  await mk(f2).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.deepEqual(sleeps, [2000], "a missing retry_after defaults to 2 s");
+  ok("retry_after is honoured within 1..5 s");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 429, body: '{"error":"too_many_concurrent_reads","message":"Too many reads are already in flight on this API key.","retry_after":2}' }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(sleeps, []);
+  assert.match(r.content[0].text, /keep at most 2 reads in flight/);
+  ok("a 429 too_many_concurrent_reads is never retried and tells the model to lower concurrency");
+}
+{
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503 }, { status: 200, body: "{}" }]);
+  await mk(fetchImpl).callEndpoint("/api/reddit/submit", { subreddit: "test", title: "t" }, "POST");
+  assert.equal(calls.length, 1);
+  ok("a WRITE is never retried on the API's JSON 503 either");
+}
+{
+  const { fetchImpl, calls } = seq([{ status: 503, body: '{"error":"service_unavailable","message":"maintenance"}' }]);
+  await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 1);
+  ok("a JSON 503 with any other error value is not retried (negative control)");
+}
 {
   const abort = Object.assign(new Error("aborted"), { name: "AbortError" });
   const { fetchImpl, calls } = seq([abort, { status: 200, body: "{}" }]);
