@@ -3,7 +3,9 @@
 //   - authHeaders replace the API key: sent on every call, no Authorization, no
 //     "missing key" paywall
 //   - a read that lands in an API restart (the gateway's HTML 502/503/504, or a
-//     refused connection) is retried; JSON errors, timeouts and writes are not
+//     refused connection) is retried; JSON errors other than the read-side 503
+//     upstream_unavailable / 408 upstream_timeout (one retry each), transport
+//     timeouts and writes are not
 import assert from "node:assert/strict";
 import { createServer as createHttp } from "node:http";
 
@@ -98,6 +100,45 @@ const API_503 = '{"error":"upstream_unavailable","message":"This request could n
   assert.equal(calls.length, 2, "exactly one retry, then the error is reported");
   assert.match(r.content[0].text, /upstream_unavailable/);
   ok("the API transient retry is bounded to one");
+}
+// 0.10.2: the API's 408 upstream_timeout on a READ (a read that did not complete in
+// time, not billed) gets the same ONE retry after its retry_after; a 408 with any
+// other body, and a 408 on a write, never do.
+const API_408 = '{"error":"upstream_timeout","message":"The read did not complete in time. It was not billed. Please retry shortly.","retry_after":2}';
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 408, body: API_408 }, { status: 200, body: '{"posts":[]}' }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, undefined);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(sleeps, [2000], "waits the body's retry_after seconds");
+  ok("a read answered 408 upstream_timeout is retried once and returns the real answer");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 408, body: API_408 }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 2, "exactly one retry, then the error is reported");
+  assert.match(r.content[0].text, /upstream_timeout/);
+  assert.match(r.content[0].text, /did not complete in time; retry after the retry_after seconds/, "the 408 hint names the retry");
+  ok("the 408 retry is bounded to one and the error carries the 408 hint");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 408, body: '{"error":"request_timeout"}' }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 1, "a 408 with another error value is not the API's transient timeout and is not retried");
+  ok("only the top-level error value upstream_timeout earns the 408 retry");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 408, body: API_408 }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/monitor/add", { subreddit: "x" }, "POST");
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 1, "a write is never retried on a 408");
+  ok("a 408 on a write is never retried");
 }
 {
   sleeps.length = 0;
