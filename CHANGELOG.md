@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.2 (2026-10-14)
+
+### The 408 upstream_timeout read gets the same one retry
+
+The API now answers `408 {"error":"upstream_timeout"}` when a read did not complete in
+time (the body says it was not billed and names `retry_after`); before this release that
+case was a 500 and the model saw it as a failed tool call. A read answered that way is
+retried once after its `retry_after` (clamped 1..5 s), exactly like the 503
+`upstream_unavailable` retry from 0.10.1, and a 408 that is not retried carries a hint
+naming the retry. A 408 with any other error value, and a 408 on a write, are never
+retried.
+
 ## 0.10.1 (2026-10-14)
 
 ### One bounded retry on the API's transient 503, and a clearer 429

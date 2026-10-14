@@ -134,6 +134,7 @@ export function hintFor(status, path) {
     for (const [re, hint] of NOT_FOUND_HINTS) if (re.test(path || "")) return hint;
     return DEFAULT_NOT_FOUND_HINT;
   }
+  if (status === 408) return " (the read did not complete in time and was not billed; retry after the retry_after seconds)";
   if (status === 429) return " (slow down: wait the retry_after seconds, keep this key's reads in flight under the limit the message names, then retry)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
   return "";
@@ -288,7 +289,9 @@ export function createServer({
     const RETRYABLE_NET = new Set(["ECONNREFUSED"]);
     const gatewayFailure = (status, text) =>
       (status === 502 || status === 503) && /^\s*<(!doctype|html)/i.test(text);
-    // The API's own transient refusal of a READ: 503 with error upstream_unavailable.
+    // The API's own transient refusal of a READ: 503 with error upstream_unavailable,
+    // and since 0.10.2 the 408 upstream_timeout it answers when a read did not
+    // complete in time (the body says it was not billed and names retry_after).
     // Its body says the call was not billed and names retry_after, so ONE retry after
     // that many seconds (clamped 1..5) never double-bills and turns a per-read refusal
     // into a slow success instead of a failed tool call (0.10.1). Never a write, never
@@ -296,8 +299,10 @@ export function createServer({
     // The TOP-LEVEL error value, parsed, never a substring match (review 2026-10-14:
     // a body nesting the string elsewhere must not be retried).
     const parsedBody = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
-    const apiTransientRead = (status, text) =>
-      status === 503 && parsedBody(text)?.error === "upstream_unavailable";
+    const apiTransientRead = (status, text) => {
+      const err = parsedBody(text)?.error;
+      return (status === 503 && err === "upstream_unavailable") || (status === 408 && err === "upstream_timeout");
+    };
     const retryAfterMs = (text) => {
       const s = Number(parsedBody(text)?.retry_after);
       return Math.min(5, Math.max(1, Number.isFinite(s) && s > 0 ? s : 2)) * 1000;
