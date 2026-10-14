@@ -119,4 +119,11 @@ function isEntrypoint() {
     return false;
   }
 }
-if (isEntrypoint()) main();
+if (isEntrypoint()) {
+  // A crash (the catalog failed to import, an unexpected throw) is CANNOT
+  // EVALUATE, exit 2, never an unhandled rejection's exit 1 that reads as drift.
+  main().catch((e) => {
+    console.error(`[hub-parity] CANNOT EVALUATE: ${e && e.message ? e.message : e}. Not a pass.`);
+    process.exit(2);
+  });
+}
