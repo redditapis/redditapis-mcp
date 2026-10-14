@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.3 (2026-10-14)
+
+### reddit_post_comments takes limit, depth and sort
+
+A thread read had no knobs, so a 33-comment thread came back as 75k chars in one
+line and a 2,700-comment thread was unreadable from any MCP client. The tool now
+accepts `limit` (top-level comments, 1 to 500, default 100), `depth` (reply depth,
+1 to 10; `depth=1` is top-level only; absent is the full tree) and `sort`
+(confidence, top, new, controversial, old, qa). The API echoes what it applied in
+`meta` (`limit_used`, `depth_used`, `sort_used`). Reported through feedback
+cbf0156d.
+
+### Fan-out tools say when an answer is partial
+
+`reddit_deep_comment_search` reports `meta.partial`, `meta.trees_failed` and
+`meta.trees_fetched` when one of its comment-tree reads failed while the others
+succeeded, and fails only when every tree failed and at least one was refused
+upstream. `reddit_post_visibility` answers `undecidable` with
+`checked.listing_error` when the post resolved but the author listing read did
+not (`upstream_unavailable` and `upstream_timeout` are not billed;
+`listing_unavailable` means Reddit answered the listing with 403 or 404 and is
+billed). The descriptions carry both contracts.
+
 ## 0.10.2 (2026-10-14)
 
 ### The 408 upstream_timeout read gets the same one retry
