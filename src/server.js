@@ -277,9 +277,10 @@ export function createServer({
     }
 
     // An API restart makes the gateway answer an HTML 502/503 or refuse the
-    // connection for a short window. A READ is retried through it; the API's own
-    // JSON errors, timeouts and writes never are, so a request the API may already have
-    // handled is never sent twice (a gateway 504 is not retried for that reason).
+    // connection for a short window. A READ is retried through it; timeouts and
+    // writes never are, so a request the API may already have handled is never sent
+    // twice (a gateway 504 is not retried for that reason). The one API JSON error
+    // that IS retried is the read-side 503 upstream_unavailable below (0.10.1).
     // Only a REFUSED connection is retried: the request never reached the API,
     // so it cannot have been handled or billed. A reset, a broken pipe or a
     // socket dropped mid-answer can all happen after the API did the work, and
@@ -292,12 +293,14 @@ export function createServer({
     // that many seconds (clamped 1..5) never double-bills and turns a per-read refusal
     // into a slow success instead of a failed tool call (0.10.1). Never a write, never
     // a 429 too_many_concurrent_reads (that one asks for less concurrency, not a retry).
+    // The TOP-LEVEL error value, parsed, never a substring match (review 2026-10-14:
+    // a body nesting the string elsewhere must not be retried).
+    const parsedBody = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
     const apiTransientRead = (status, text) =>
-      status === 503 && /"error"\s*:\s*"upstream_unavailable"/.test(text);
+      status === 503 && parsedBody(text)?.error === "upstream_unavailable";
     const retryAfterMs = (text) => {
-      const m = /"retry_after"\s*:\s*(\d+(?:\.\d+)?)/.exec(text);
-      const s = m ? Number(m[1]) : 2;
-      return Math.min(5, Math.max(1, Number.isFinite(s) ? s : 2)) * 1000;
+      const s = Number(parsedBody(text)?.retry_after);
+      return Math.min(5, Math.max(1, Number.isFinite(s) && s > 0 ? s : 2)) * 1000;
     };
     const transientNetwork = (err) =>
       !gotResponse && err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);

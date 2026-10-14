@@ -111,6 +111,18 @@ const API_503 = '{"error":"upstream_unavailable","message":"This request could n
   ok("retry_after is honoured within 1..5 s");
 }
 {
+  const { fetchImpl, calls } = seq([{ status: 503, body: '{"error":"x","detail":{"error":"upstream_unavailable","retry_after":2}}' }]);
+  await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 1);
+  ok("only the TOP-LEVEL error value counts: a nested upstream_unavailable is not retried (review 2026-10-14)");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl } = seq([{ status: 503, body: '{"error":"upstream_unavailable","retry_after":"2"}' }, { status: 200, body: "{}" }]);
+  await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.deepEqual(sleeps, [2000], "a string retry_after is read as a number");
+}
+{
   sleeps.length = 0;
   const { fetchImpl, calls } = seq([{ status: 429, body: '{"error":"too_many_concurrent_reads","message":"Too many reads are already in flight on this API key.","retry_after":2}' }]);
   const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });

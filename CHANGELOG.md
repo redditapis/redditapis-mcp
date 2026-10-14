@@ -9,7 +9,8 @@ was not billed and names `retry_after`) is now retried once after that many seco
 (clamped 1..5) before the error reaches the model; measured on 2026-10-14, a per-read
 refusal of about 1 in 3 showed up as failed tool calls that one retry turns into slow
 successes. Writes are never retried, any other 503 is never retried, and the gateway
-retries are unchanged. A `429` now tells the model to lower concurrency (stay under the per-key limit the
+retries are unchanged. The wait is clamped to 5 s, so the API's 60 s `retry_after`
+(an exhausted-egress 503) costs one 5 s wait before the error is reported, never a loop. A `429` now tells the model to lower concurrency (stay under the per-key limit the
 message names) and wait the `retry_after`, matching the API's
 `too_many_concurrent_reads` answer.
 
