@@ -294,7 +294,7 @@ export const TOOLS = [
     name: "reddit_post_visibility",
     path: "/api/reddit/post/{id}/visibility",
     description:
-      "Is a post still publicly visible, or did it quietly stop being so? A removed Reddit post still returns when fetched by id, so the post alone does not answer this. This fetches the post and then one page of its author's submitted listing and compares them. Returns a verdict of live, not_visible or undecidable, a plain-language reason, and a confident flag. By design it does not say WHY a post is not visible: a moderator removal, an admin removal, a spam filter and an author who has hidden their history are indistinguishable from outside. undecidable is a real answer, not a failure. Two upstream calls, billed as one $0.004 dual read.",
+      "Is a post still publicly visible, or did it quietly stop being so? A removed Reddit post still returns when fetched by id, so the post alone does not answer this. This fetches the post and then one page of its author's submitted listing and compares them. Returns a verdict of live, not_visible or undecidable, a plain-language reason, and a confident flag. By design it does not say WHY a post is not visible: a moderator removal, an admin removal, a spam filter and an author who has hidden their history are indistinguishable from outside. undecidable is a real answer, not a failure. When the post resolves but the author listing read fails, the answer is still returned as undecidable with checked.author_listing false and checked.listing_error naming why (upstream_unavailable or upstream_timeout: our read was refused, not billed; listing_unavailable: Reddit answered the listing with 403 or 404, billed). Two upstream calls, billed as one $0.004 dual read.",
     shape: {
       id: z.string().min(1).describe("Reddit post id, base36, with or without the t3_ prefix"),
     },
@@ -303,10 +303,19 @@ export const TOOLS = [
     name: "reddit_post_comments",
     path: "/api/reddit/comments",
     description:
-      "Fetches a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result.",
+      "Fetches a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result. Size a big thread with the three knobs: `limit` caps top-level comments (1-500, default 100), `depth` caps reply depth (1-10; `depth=1` is top-level only; absent is the full tree) and `sort` orders them (confidence = Reddit's best, top, new, controversial, old, qa). `limit=20, depth=1, sort='top'` reads the twenty best top-level comments and nothing below them, which keeps a 2,700-comment thread readable. `meta` echoes limit_used, depth_used and sort_used.",
     shape: {
       permalink: z.string().min(1).describe(
         "The post permalink path from a prior post result, e.g. '/r/programming/comments/abc123/some_title/'. Required.",
+      ),
+      limit: z.number().int().min(1).max(500).optional().describe(
+        "Maximum top-level comments, 1-500 (default 100). A small value with depth=1 gives a readable summary of a large thread.",
+      ),
+      depth: z.number().int().min(1).max(10).optional().describe(
+        "Maximum reply depth, 1-10. depth=1 returns top-level comments only. Absent, Reddit's full tree is returned.",
+      ),
+      sort: z.enum(["confidence", "top", "new", "controversial", "old", "qa"]).optional().describe(
+        "Comment ordering: confidence (Reddit's best), top, new, controversial, old or qa. Absent, Reddit's default for the thread.",
       ),
     },
   },
@@ -328,7 +337,7 @@ export const TOOLS = [
     name: "reddit_deep_comment_search",
     path: "/api/reddit/search/comments/deep",
     description:
-      "Comment search that returns the ACTUAL comments whose body matches the keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. It fetches each matching post's comment tree and filters the comment bodies, so the results are first-hand opinions and answers rather than parent posts. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. The response's `after` cursor expands the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so every result mentions the query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). group_by='author' switches to a research mode that returns WHO is talking about the query (distinct people ranked by matching-comment count) in place of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
+      "Comment search that returns the ACTUAL comments whose body matches the keyword, sorted by score (highest first), with body, score, author, a comment-deep permalink, and the parent post. It fetches each matching post's comment tree and filters the comment bodies, so the results are first-hand opinions and answers rather than parent posts. Premium call (it fans out into several reads): `limit` sets how many parent POSTS to expand, 1-25 (default 5), not how many comments come back. The response's `after` cursor expands the NEXT batch of parent posts. `max_comments` optionally caps how many comments come back (the top-scored are kept). Matching is on the visible comment text at word boundaries (link URLs are ignored), so every result mentions the query where a reader can see it. Best-effort: a deleted or deeply-nested comment may be missed (meta.truncated flags when a tree was too deep). Each parent post is its own comment-tree read and one can fail while the others succeed: meta.partial is true with meta.trees_failed and meta.trees_fetched when that happened, so the result covers fewer parent posts than it scanned; the call fails only when every tree failed and at least one was refused upstream. group_by='author' switches to a research mode that returns WHO is talking about the query (distinct people ranked by matching-comment count) in place of a flat comment list, capped by max_authors. Example: q='best mechanical keyboard' sort='relevance' t='year'.",
     shape: {
       ...QUERY,
       ...SORT_SEARCH,
