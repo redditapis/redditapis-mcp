@@ -105,7 +105,7 @@ function assertVersionParity() {
     console.error(
       "  server.json is what the official MCP registry publishes from. Shipping this\n" +
         "  would advertise an old tool surface to anyone resolving us from the registry.\n" +
-        "  Set BOTH version fields in apps/mcp/server.json and publish again."
+        "  Set BOTH version fields in server.json at the package root and publish again."
     );
     process.exit(1);
   }
