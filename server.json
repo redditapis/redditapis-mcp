@@ -3,8 +3,8 @@
   "name": "io.github.redditapis/redditapis-mcp",
   "description": "Reddit API as MCP tools: search, subreddits, posts, comments, users, monitors, webhooks, feedback.",
   "title": "RedditAPIs",
-  "version": "0.10.3",
-  "websiteUrl": "https://www.redditapis.com",
+  "version": "0.10.4",
+  "websiteUrl": "https://www.redditapis.com/mcp",
   "repository": {
     "url": "https://github.com/redditapis/redditapis-mcp",
     "source": "github"
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "redditapis-mcp",
-      "version": "0.10.3",
+      "version": "0.10.4",
       "transport": {
         "type": "stdio"
       },
