@@ -322,7 +322,7 @@ Reads need nothing but your API key -- no account linking, login, or cookie step
 
 **`HTTP 429 (rate limited)`** Wait a few seconds and retry, or reduce request frequency. For bulk work, space out calls and raise `REDDITAPIS_TIMEOUT_MS`.
 
-**`HTTP 408 (upstream_timeout)`** The read did not finish in time and was not billed. The server already retried once after `retry_after`; call the tool again shortly. A `503 upstream_unavailable` on a read gets the same one retry.
+**`HTTP 408` or `HTTP 503` with `upstream_timeout`** The read did not finish in time and was not billed (a 503 means the API's own read budget ran out). The server already retried once after `retry_after` (or the `Retry-After` header), when that retry can still finish inside `REDDITAPIS_TIMEOUT_MS`; call the tool again shortly. A `503 upstream_unavailable` on a read gets the same one retry.
 
 **`Request failed: timed out after 30000ms`** The default timeout is 30 seconds. For large `reddit_deep_comment_search` or paginated fetches, set `REDDITAPIS_TIMEOUT_MS` higher (for example `60000`).
 

@@ -4,7 +4,7 @@
 //     "missing key" paywall
 //   - a read that lands in an API restart (the gateway's HTML 502/503/504, or a
 //     refused connection) is retried; JSON errors other than the read-side 503
-//     upstream_unavailable / 408 upstream_timeout (one retry each), transport
+//     upstream_unavailable / 408 and 503 upstream_timeout (one retry each), transport
 //     timeouts and writes are not
 import assert from "node:assert/strict";
 import { createServer as createHttp } from "node:http";
@@ -24,7 +24,12 @@ function seq(responses) {
     calls.push({ url, method: init?.method, headers: init?.headers });
     const r = responses[Math.min(calls.length - 1, responses.length - 1)];
     if (r instanceof Error) throw r;
-    return { ok: r.status >= 200 && r.status < 300, status: r.status, headers: { get: () => null }, text: async () => r.body };
+    if (r.hang) {
+      // Never answers; settles only when the client aborts its own timer.
+      return new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))));
+    }
+    if (r.onCall) r.onCall();
+    return { ok: r.status >= 200 && r.status < 300, status: r.status, headers: { get: (k) => (r.headers || {})[String(k).toLowerCase()] ?? null }, text: async () => r.body };
   };
   return { fetchImpl, calls };
 }
@@ -244,6 +249,103 @@ const API_408 = '{"error":"upstream_timeout","message":"The read did not complet
   srv.close();
   assert.equal(hits, 1);
   ok("a socket closed after the request arrived is never re-sent: exactly 1 hit");
+}
+
+// 0.10.5: the API answers a read whose wall-clock budget ran out with 503 and the
+// same upstream_timeout value (it used to be 408). Same unbilled per-read refusal,
+// so the same ONE retry, the "did not complete in time" hint, Retry-After honoured,
+// and the whole call kept inside the client timeout.
+const API_503_TIMEOUT = '{"error":"upstream_timeout","message":"The read did not complete in time. It was not billed. Please retry shortly.","retry_after":5}';
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503_TIMEOUT }, { status: 200, body: '{"posts":[]}' }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, undefined);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(sleeps, [5000], "waits the body's retry_after seconds");
+  ok("a read answered 503 upstream_timeout is retried once and returns the real answer");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503_TIMEOUT }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 2, "exactly one retry, then the error is reported");
+  assert.match(r.content[0].text, /^HTTP 503 \(the read did not complete in time; retry after the retry_after seconds\)/, "the 503 upstream_timeout carries the did-not-complete hint");
+  assert.doesNotMatch(r.content[0].text, /upstream API error/, "not the generic 5xx hint");
+  ok("the 503 upstream_timeout retry is bounded to one and the error carries the did-not-complete hint");
+}
+{
+  // CONTROL: a 503 upstream_unavailable keeps the generic 5xx hint.
+  sleeps.length = 0;
+  const { fetchImpl } = seq([{ status: 503, body: API_503 }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.match(r.content[0].text, /upstream API error/);
+  ok("control: 503 upstream_unavailable keeps the generic 5xx hint");
+}
+{
+  sleeps.length = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503_TIMEOUT }]);
+  const r = await mk(fetchImpl).callEndpoint("/api/reddit/monitor/add", { subreddit: "x" }, "POST");
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 1, "a write is never retried on a 503 upstream_timeout");
+  ok("a 503 upstream_timeout on a write is never retried");
+}
+{
+  // Retry-After header when the body names no retry_after; the body wins when both are set.
+  sleeps.length = 0;
+  const { fetchImpl } = seq([{ status: 503, body: '{"error":"upstream_timeout"}', headers: { "retry-after": "4" } }, { status: 200, body: "{}" }]);
+  await mk(fetchImpl).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.deepEqual(sleeps, [4000], "the Retry-After header is honoured when the body has no retry_after");
+  sleeps.length = 0;
+  const { fetchImpl: f2 } = seq([{ status: 503, body: '{"error":"upstream_timeout","retry_after":3}', headers: { "retry-after": "5" } }, { status: 200, body: "{}" }]);
+  await mk(f2).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.deepEqual(sleeps, [3000], "the body's retry_after wins over the header");
+  sleeps.length = 0;
+  const { fetchImpl: f3 } = seq([{ status: 503, body: '{"error":"upstream_timeout"}', headers: { "retry-after": "60" } }, { status: 200, body: "{}" }]);
+  await mk(f3).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.deepEqual(sleeps, [5000], "a header wait is clamped to 5 s too");
+  ok("Retry-After is honoured (body first, then header), clamped 1..5 s");
+}
+{
+  // The budget-spent shape: the refusal arrives 24 s into a 30 s client timeout. A
+  // 5 s wait leaves 1 s, under the retry floor, so the call answers now with the
+  // hint instead of being cut off mid-retry.
+  sleeps.length = 0;
+  let clock = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503_TIMEOUT, onCall: () => { clock += 24000; } }, { status: 200, body: "{}" }]);
+  const r = await mk(fetchImpl, { nowImpl: () => clock }).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 1, `no retry that cannot finish inside the client timeout, got ${calls.length} calls`);
+  assert.deepEqual(sleeps, []);
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /did not complete in time/);
+  ok("a refusal too late for a retry inside the client timeout is answered at once, with the hint");
+}
+{
+  // CONTROL at 22 s: 30 - 22 - 5 = 3 s left, exactly the floor, so the retry is sent.
+  sleeps.length = 0;
+  let clock = 0;
+  const { fetchImpl, calls } = seq([{ status: 503, body: API_503_TIMEOUT, onCall: () => { clock += 22000; } }, { status: 200, body: "{}" }]);
+  const r = await mk(fetchImpl, { nowImpl: () => clock, sleepImpl: async (ms) => { sleeps.push(ms); clock += ms; } }).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 2);
+  assert.equal(r.isError, undefined);
+  ok("control: with 3 s left after the wait the retry is still sent");
+}
+{
+  // The retried attempt is aborted at what is LEFT of the client timeout, never a fresh
+  // full timer: timeoutMs 10 s, refusal at 6 s, 1 s wait, 3 s left, the hanging retry is
+  // cut at 3000 ms (real timer, so this case takes ~3 s).
+  sleeps.length = 0;
+  let clock = 0;
+  const { fetchImpl, calls } = seq([
+    { status: 503, body: '{"error":"upstream_timeout","retry_after":1}', onCall: () => { clock += 6000; } },
+    { hang: true },
+  ]);
+  const r = await mk(fetchImpl, { timeoutMs: 10000, nowImpl: () => clock, sleepImpl: async (ms) => { sleeps.push(ms); clock += ms; } }).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 2);
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /timed out after 3000ms/, `the retry is bounded by what is left, got: ${r.content[0].text}`);
+  ok("the retried attempt is aborted at what is left of the client timeout (3000 ms of 10000)");
 }
 
 console.log(`\nremote-host: ${n} passed, 0 failed`);
