@@ -330,6 +330,20 @@ export function createServer({
     const MIN_API_RETRY_MS = 3000;
     const callStartedAt = nowImpl();
     let attemptTimeoutMs = REQUEST_TIMEOUT_MS;
+    // What is left of the client timeout right now. EVERY retry below (gateway page,
+    // refused connection, API transient read) sleeps and re-attempts only inside it
+    // (review of 0.11.0: the gateway and connection retries slept their fixed delays
+    // and re-attempted on a fresh timer, so a call could overshoot by up to ~11 s).
+    const leftMs = () => REQUEST_TIMEOUT_MS - (nowImpl() - callStartedAt);
+    // Sleep `delayMs` and shrink the next attempt to what is left, or return false
+    // when the retry could not finish inside the client timeout.
+    const retryWithin = async (delayMs) => {
+      const leftAfter = leftMs() - delayMs;
+      if (leftAfter < MIN_API_RETRY_MS) return false;
+      await sleepImpl(delayMs);
+      attemptTimeoutMs = Math.min(REQUEST_TIMEOUT_MS, leftAfter);
+      return true;
+    };
     const transientNetwork = (err) =>
       !gotResponse && err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);
     let attempt = 0;
@@ -345,19 +359,13 @@ export function createServer({
       const body = await res.text();
       if (!isWrite && attempt < retryDelaysMs.length && gatewayFailure(res.status, body)) {
         clearTimeout(timer);
-        await sleepImpl(retryDelaysMs[attempt++]);
-        continue;
+        if (await retryWithin(retryDelaysMs[attempt++])) continue;
+        // No room inside the client timeout: the gateway page is answered below as the error.
       }
       if (!isWrite && !apiRetried && apiTransientRead(res.status, body)) {
-        const waitMs = retryAfterMs(body, res);
-        const leftAfterWaitMs = REQUEST_TIMEOUT_MS - (nowImpl() - callStartedAt) - waitMs;
-        if (leftAfterWaitMs >= MIN_API_RETRY_MS) {
-          clearTimeout(timer);
-          apiRetried = true;
-          await sleepImpl(waitMs);
-          attemptTimeoutMs = Math.min(REQUEST_TIMEOUT_MS, leftAfterWaitMs);
-          continue;
-        }
+        clearTimeout(timer);
+        apiRetried = true;
+        if (await retryWithin(retryAfterMs(body, res))) continue;
         // No room for a retry inside the client timeout: answer the refusal now,
         // with its hint, rather than be cut off waiting for a second read.
       }
@@ -404,12 +412,13 @@ export function createServer({
     } catch (err) {
       if (!isWrite && attempt < retryDelaysMs.length && transientNetwork(err)) {
         clearTimeout(timer);
-        await sleepImpl(retryDelaysMs[attempt++]);
-        continue;
+        if (await retryWithin(retryDelaysMs[attempt++])) continue;
       }
       const code = err?.cause?.code ?? err?.code;
       const msg = err?.name === "AbortError"
-        ? `timed out after ${attemptTimeoutMs}ms`
+        ? (attemptTimeoutMs < REQUEST_TIMEOUT_MS
+          ? `timed out after ${attemptTimeoutMs}ms (the retry had that much of the ${REQUEST_TIMEOUT_MS}ms client timeout left)`
+          : `timed out after ${attemptTimeoutMs}ms`)
         : `${err?.message || String(err)}${code ? ` (${code})` : ""}`;
       lastError = { path, method, status: null, error: msg.slice(0, 200), ts: Date.now() };
       return { isError: true, content: [{ type: "text", text: `Request failed: ${msg}` }] };

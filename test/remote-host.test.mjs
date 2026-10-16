@@ -348,4 +348,53 @@ const API_503_TIMEOUT = '{"error":"upstream_timeout","message":"The read did not
   ok("the retried attempt is aborted at what is left of the client timeout (3000 ms of 10000)");
 }
 
+{
+  // Review probe (0.11.0): a gateway 502 AFTER the API retry must not sleep its fixed
+  // delay on a fresh timer. timeoutMs 10 s: refusal at 6 s, 1 s wait (3 s left), then an
+  // HTML 502 at 7.5 s: the gateway retry would need its delay plus 3 s, which is not
+  // left, so the 502 is answered at once and the call ends inside 10 s.
+  sleeps.length = 0;
+  let clock = 0;
+  const { fetchImpl, calls } = seq([
+    { status: 503, body: '{"error":"upstream_timeout","retry_after":1}', onCall: () => { clock += 6000; } },
+    { status: 502, body: "<html>bad gateway</html>", onCall: () => { clock += 500; } },
+    { hang: true },
+  ]);
+  const r = await mk(fetchImpl, { timeoutMs: 10000, retryDelaysMs: [3000, 8000], nowImpl: () => clock, sleepImpl: async (ms) => { sleeps.push(ms); clock += ms; } }).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 2, `no third attempt outside the client timeout, got ${calls.length}`);
+  assert.deepEqual(sleeps, [1000]);
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /HTTP 502/);
+  assert.ok(clock <= 10000, `the call ended inside the client timeout, clock ${clock}`);
+  ok("a gateway retry that cannot finish inside the client timeout is not sent (review probe)");
+}
+{
+  // CONTROL: the same sequence with the default 30 s timeout retries the gateway page
+  // (7.5 s + 3 s delay leaves 19.5 s) and the third attempt gets what is left, not 30 s.
+  sleeps.length = 0;
+  let clock = 0;
+  const { fetchImpl, calls } = seq([
+    { status: 503, body: '{"error":"upstream_timeout","retry_after":1}', onCall: () => { clock += 6000; } },
+    { status: 502, body: "<html>bad gateway</html>", onCall: () => { clock += 500; } },
+    { status: 200, body: "{}" },
+  ]);
+  const r = await mk(fetchImpl, { retryDelaysMs: [3000, 8000], nowImpl: () => clock, sleepImpl: async (ms) => { sleeps.push(ms); clock += ms; } }).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(sleeps, [1000, 3000]);
+  assert.equal(r.isError, undefined);
+  ok("control: with budget left the gateway retry is still sent, inside the client timeout");
+}
+{
+  // LOW: a shortened attempt's timeout message names the client timeout it was cut from.
+  sleeps.length = 0;
+  let clock = 0;
+  const { fetchImpl } = seq([
+    { status: 503, body: '{"error":"upstream_timeout","retry_after":1}', onCall: () => { clock += 6000; } },
+    { hang: true },
+  ]);
+  const r = await mk(fetchImpl, { timeoutMs: 10000, nowImpl: () => clock, sleepImpl: async (ms) => { sleeps.push(ms); clock += ms; } }).callEndpoint("/api/reddit/search", { q: "x" });
+  assert.match(r.content[0].text, /timed out after 3000ms \(the retry had that much of the 10000ms client timeout left\)/, r.content[0].text);
+  ok("a shortened retry's timeout message names the client timeout");
+}
+
 console.log(`\nremote-host: ${n} passed, 0 failed`);
