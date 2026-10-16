@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (2026-10-16)
 
-### A read the API answers 503 upstream_timeout is retried once (0.10.5)
+Released to npm as 0.11.0: the changes below plus reddit_account_payments (#23), which makes this a minor release (the version-class gate refuses a patch that adds a tool).
+
+### A read the API answers 503 upstream_timeout is retried once
 
 The API now answers a read whose wall-clock budget ran out with `503` and
 `Retry-After`, keeping the `upstream_timeout` error value (it was `408`,
@@ -18,7 +20,7 @@ refusal that arrives too late is answered at once with its hint. Writes are
 never retried. `test/remote-host.test.mjs` covers the retry, the hint, the
 header, the write control and the timeout bound.
 
-### README opening for the listings (0.10.4, README only)
+### README opening for the listings (README only)
 
 The first paragraph is what Glama, mcpservers.org, the MCP Registry and npm
 copy word for word. It now says in one paragraph what the server does and

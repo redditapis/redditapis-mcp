@@ -137,7 +137,7 @@ export function hintFor(status, path, error) {
   }
   // A read that did not complete in time: the API answers it 408, and since the
   // read-budget change a spent budget answers 503 with the same error value
-  // (0.10.5). Both get the "did not complete in time" hint, keyed on the error.
+  // (0.11.0). Both get the "did not complete in time" hint, keyed on the error.
   if (status === 408 || (status === 503 && error === "upstream_timeout")) return " (the read did not complete in time; retry after the retry_after seconds)";
   if (status === 429) return " (slow down: wait the retry_after seconds, keep this key's reads in flight under the limit the message names, then retry)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
@@ -288,7 +288,7 @@ export function createServer({
     // writes never are, so a request the API may already have handled is never sent
     // twice (a gateway 504 is not retried for that reason). The API JSON errors
     // that ARE retried, once, are the read-side 503 upstream_unavailable (0.10.1),
-    // 408 upstream_timeout (0.10.2) and 503 upstream_timeout (0.10.5) below.
+    // 408 upstream_timeout (0.10.2) and 503 upstream_timeout (0.11.0) below.
     // Only a REFUSED connection is retried: the request never reached the API,
     // so it cannot have been handled or billed. A reset, a broken pipe or a
     // socket dropped mid-answer can all happen after the API did the work, and
@@ -306,7 +306,7 @@ export function createServer({
     // The TOP-LEVEL error value, parsed, never a substring match (review 2026-10-14:
     // a body nesting the string elsewhere must not be retried).
     const parsedBody = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
-    // 0.10.5: the API answers a read whose wall-clock budget ran out with 503 and
+    // 0.11.0: the API answers a read whose wall-clock budget ran out with 503 and
     // the same upstream_timeout value (408 told the client its OWN request was
     // slow). It is the same unbilled per-read refusal, so it gets the same retry.
     const apiTransientRead = (status, text) => {
@@ -321,7 +321,7 @@ export function createServer({
       if (!(Number.isFinite(s) && s > 0)) s = Number(res?.headers?.get?.("retry-after"));
       return Math.min(5, Math.max(1, Number.isFinite(s) && s > 0 ? s : 2)) * 1000;
     };
-    // THE RETRY STAYS INSIDE THE CLIENT TIMEOUT (0.10.5). A budget-spent read
+    // THE RETRY STAYS INSIDE THE CLIENT TIMEOUT (0.11.0). A budget-spent read
     // arrives after ~22 s; a 5 s wait and a fresh 30 s attempt would run the
     // tool call to ~57 s, past the caller's own timeout, so it would be cut off
     // with no answer at all. The retry is sent only when, after the wait, at
