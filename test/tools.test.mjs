@@ -20,7 +20,7 @@ const check = (name, fn) => { fn(); pass++; console.log(`PASS  ${name}`); };
 
 // The path rule, as a function so the red test at the bottom can exercise the
 // same code the catalog sweep runs rather than a restatement of it.
-const FREE_UNPREFIXED_PATHS = new Set(["/feedback", "/account/me"]);
+const FREE_UNPREFIXED_PATHS = new Set(["/feedback", "/account/me", "/account/payments"]);
 export function pathIsLegal(t) {
   if (t.path === null || t.path === undefined) return Boolean(t.local);
   return typeof t.path === "string" && (
@@ -261,7 +261,8 @@ check("a null path is legal ONLY for a local tool, and a bad prefix is refused e
   assert.equal(pathIsLegal({ name: "x", path: undefined }), false, "an absent path on a non-local tool must be refused");
   assert.equal(pathIsLegal({ name: "x", path: "/api/twitter/posts" }), false, "a foreign prefix must be refused");
   assert.equal(pathIsLegal({ name: "x", path: "/api/twitter/posts", local: "explain" }), false, "a local handler must not launder a foreign prefix");
-  assert.equal(pathIsLegal({ name: "x", path: "/account/payments" }), false, "a free-mount sibling must be added on purpose");
+  assert.equal(pathIsLegal({ name: "x", path: "/account/payments" }), true, "added on purpose with live evidence (#169)");
+  assert.equal(pathIsLegal({ name: "x", path: "/account/invoices" }), false, "any other free-mount sibling must still be added on purpose");
   assert.equal(pathIsLegal({ name: "x", path: "/api/reddit/monitor/add" }), true);
   assert.equal(pathIsLegal({ name: "x", path: "/account/me" }), true);
 });

@@ -812,6 +812,19 @@ export const TOOLS = [
     shape: {},
   },
   {
+    // THE SPEND SIDE OF THE BALANCE. reddit_account_me says how much credit is
+    // left; this says where it came from: every top-up with its amount, the
+    // credits it added, its status and when. GET /account/payments is mounted
+    // beside /account/me, outside /api, and costs nothing (endpoint-costs
+    // "account/payments": 0). Verified live: it answers 401 unauthenticated while
+    // /account/<nonsense> answers 404, so the route exists.
+    name: "reddit_account_payments",
+    path: "/account/payments",
+    description:
+      "Returns the payment history of the account behind this API key: each top-up's amount, the credits it added, its status and when it happened, newest first. Free: not metered, and costs no credit.",
+    shape: {},
+  },
+  {
     // ONE CALL INSTEAD OF THREE. Standing up a watch today means composing a
     // webhook registration, a monitor creation and a test delivery, each with
     // its own vocabulary, and the first one a caller gets wrong fails late as a
