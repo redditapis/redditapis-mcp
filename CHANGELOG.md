@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### A read the API answers 503 upstream_timeout is retried once (0.10.5)
+
+The API now answers a read whose wall-clock budget ran out with `503` and
+`Retry-After`, keeping the `upstream_timeout` error value (it was `408`,
+which told the client its own request was slow). The read retry knew only
+`503 upstream_unavailable` and `408 upstream_timeout`, so this answer lost its
+one retry and got the generic 5xx hint. `(503, upstream_timeout)` is now
+retried once like the other two, and carries the "did not complete in time"
+hint. The wait is the body's `retry_after`, else the `Retry-After` header,
+clamped to 1 to 5 seconds. The retry is sent only when at least 3 seconds of
+`REDDITAPIS_TIMEOUT_MS` are left after the wait, and that attempt is aborted
+at what is left, so the whole tool call ends inside the client timeout; a
+refusal that arrives too late is answered at once with its hint. Writes are
+never retried. `test/remote-host.test.mjs` covers the retry, the hint, the
+header, the write control and the timeout bound.
+
 ### README opening for the listings (0.10.4, README only)
 
 The first paragraph is what Glama, mcpservers.org, the MCP Registry and npm
