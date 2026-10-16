@@ -137,7 +137,7 @@ export function hintFor(status, path, error) {
   }
   // A read that did not complete in time: the API answers it 408, and since the
   // read-budget change a spent budget answers 503 with the same error value
-  // (0.10.5). Both get the "did not complete in time" hint, keyed on the error.
+  // (0.11.0). Both get the "did not complete in time" hint, keyed on the error.
   if (status === 408 || (status === 503 && error === "upstream_timeout")) return " (the read did not complete in time; retry after the retry_after seconds)";
   if (status === 429) return " (slow down: wait the retry_after seconds, keep this key's reads in flight under the limit the message names, then retry)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
@@ -288,7 +288,7 @@ export function createServer({
     // writes never are, so a request the API may already have handled is never sent
     // twice (a gateway 504 is not retried for that reason). The API JSON errors
     // that ARE retried, once, are the read-side 503 upstream_unavailable (0.10.1),
-    // 408 upstream_timeout (0.10.2) and 503 upstream_timeout (0.10.5) below.
+    // 408 upstream_timeout (0.10.2) and 503 upstream_timeout (0.11.0) below.
     // Only a REFUSED connection is retried: the request never reached the API,
     // so it cannot have been handled or billed. A reset, a broken pipe or a
     // socket dropped mid-answer can all happen after the API did the work, and
@@ -306,7 +306,7 @@ export function createServer({
     // The TOP-LEVEL error value, parsed, never a substring match (review 2026-10-14:
     // a body nesting the string elsewhere must not be retried).
     const parsedBody = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
-    // 0.10.5: the API answers a read whose wall-clock budget ran out with 503 and
+    // 0.11.0: the API answers a read whose wall-clock budget ran out with 503 and
     // the same upstream_timeout value (408 told the client its OWN request was
     // slow). It is the same unbilled per-read refusal, so it gets the same retry.
     const apiTransientRead = (status, text) => {
@@ -315,13 +315,13 @@ export function createServer({
         (status === 408 && err === "upstream_timeout");
     };
     // The wait comes from the body's retry_after, else the Retry-After header
-    // (delta-seconds), else 2 s; clamped 1..5 s either way (0.10.5: the header).
+    // (delta-seconds), else 2 s; clamped 1..5 s either way (0.11.0: the header).
     const retryAfterMs = (text, res) => {
       let s = Number(parsedBody(text)?.retry_after);
       if (!(Number.isFinite(s) && s > 0)) s = Number(res?.headers?.get?.("retry-after"));
       return Math.min(5, Math.max(1, Number.isFinite(s) && s > 0 ? s : 2)) * 1000;
     };
-    // THE RETRY STAYS INSIDE THE CLIENT TIMEOUT (0.10.5). A budget-spent read
+    // THE RETRY STAYS INSIDE THE CLIENT TIMEOUT (0.11.0). A budget-spent read
     // arrives after ~22 s; a 5 s wait and a fresh 30 s attempt would run the
     // tool call to ~57 s, past the caller's own timeout, so it would be cut off
     // with no answer at all. The retry is sent only when, after the wait, at
@@ -330,6 +330,20 @@ export function createServer({
     const MIN_API_RETRY_MS = 3000;
     const callStartedAt = nowImpl();
     let attemptTimeoutMs = REQUEST_TIMEOUT_MS;
+    // What is left of the client timeout right now. EVERY retry below (gateway page,
+    // refused connection, API transient read) sleeps and re-attempts only inside it
+    // (review of 0.11.0: the gateway and connection retries slept their fixed delays
+    // and re-attempted on a fresh timer, so a call could overshoot by up to ~11 s).
+    const leftMs = () => REQUEST_TIMEOUT_MS - (nowImpl() - callStartedAt);
+    // Sleep `delayMs` and shrink the next attempt to what is left, or return false
+    // when the retry could not finish inside the client timeout.
+    const retryWithin = async (delayMs) => {
+      const leftAfter = leftMs() - delayMs;
+      if (leftAfter < MIN_API_RETRY_MS) return false;
+      await sleepImpl(delayMs);
+      attemptTimeoutMs = Math.min(REQUEST_TIMEOUT_MS, leftAfter);
+      return true;
+    };
     const transientNetwork = (err) =>
       !gotResponse && err?.name !== "AbortError" && RETRYABLE_NET.has(err?.cause?.code ?? err?.code);
     let attempt = 0;
@@ -345,19 +359,13 @@ export function createServer({
       const body = await res.text();
       if (!isWrite && attempt < retryDelaysMs.length && gatewayFailure(res.status, body)) {
         clearTimeout(timer);
-        await sleepImpl(retryDelaysMs[attempt++]);
-        continue;
+        if (await retryWithin(retryDelaysMs[attempt++])) continue;
+        // No room inside the client timeout: the gateway page is answered below as the error.
       }
       if (!isWrite && !apiRetried && apiTransientRead(res.status, body)) {
-        const waitMs = retryAfterMs(body, res);
-        const leftAfterWaitMs = REQUEST_TIMEOUT_MS - (nowImpl() - callStartedAt) - waitMs;
-        if (leftAfterWaitMs >= MIN_API_RETRY_MS) {
-          clearTimeout(timer);
-          apiRetried = true;
-          await sleepImpl(waitMs);
-          attemptTimeoutMs = Math.min(REQUEST_TIMEOUT_MS, leftAfterWaitMs);
-          continue;
-        }
+        clearTimeout(timer);
+        apiRetried = true;
+        if (await retryWithin(retryAfterMs(body, res))) continue;
         // No room for a retry inside the client timeout: answer the refusal now,
         // with its hint, rather than be cut off waiting for a second read.
       }
@@ -404,12 +412,13 @@ export function createServer({
     } catch (err) {
       if (!isWrite && attempt < retryDelaysMs.length && transientNetwork(err)) {
         clearTimeout(timer);
-        await sleepImpl(retryDelaysMs[attempt++]);
-        continue;
+        if (await retryWithin(retryDelaysMs[attempt++])) continue;
       }
       const code = err?.cause?.code ?? err?.code;
       const msg = err?.name === "AbortError"
-        ? `timed out after ${attemptTimeoutMs}ms`
+        ? (attemptTimeoutMs < REQUEST_TIMEOUT_MS
+          ? `timed out after ${attemptTimeoutMs}ms (the retry had that much of the ${REQUEST_TIMEOUT_MS}ms client timeout left)`
+          : `timed out after ${attemptTimeoutMs}ms`)
         : `${err?.message || String(err)}${code ? ` (${code})` : ""}`;
       lastError = { path, method, status: null, error: msg.slice(0, 200), ts: Date.now() };
       return { isError: true, content: [{ type: "text", text: `Request failed: ${msg}` }] };
