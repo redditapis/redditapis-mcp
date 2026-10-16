@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### README opening for the listings (0.10.4, README only)
+
+The first paragraph is what Glama, mcpservers.org, the MCP Registry and npm
+copy word for word. It now says in one paragraph what the server does and
+costs, followed by the install line, the hosted sign-in line and the website.
+Three FAQ answers replace the old developer-account and posting answers, and
+the FAQ's "Of the other 15" is now "Of the other 17" (47 tools: 30 Reddit
+reads plus 17 others). `server.json` `websiteUrl` is now
+https://www.redditapis.com/mcp, and `package-lock.json`, which still said
+0.9.1, now carries the package version. `test/readme-opening.test.mjs` (in
+`npm test`) checks the opening, the Website line against `websiteUrl`, every
+tool count the README states against `src/tools.js`, and one version across
+`package.json`, `server.json` and `package-lock.json`. No tool change.
+
 ### Every tool has a title and all four annotation hints
 
 Each of the 47 tools now registers a short, human-readable `title` (for

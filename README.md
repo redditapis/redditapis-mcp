@@ -4,9 +4,13 @@
 [![npm downloads](https://img.shields.io/npm/dm/redditapis-mcp)](https://www.npmjs.com/package/redditapis-mcp)
 [![license](https://img.shields.io/npm/l/redditapis-mcp)](./LICENSE)
 
-Official **Model Context Protocol** server for [redditapis.com](https://www.redditapis.com), the Reddit API as native tools for Claude, Cursor, Windsurf, and any MCP client. It turns Reddit reads (search, subreddit listings, comment trees, user profiles, community metadata) into typed tools your agent can call directly, plus (since 0.2.0) managing your own redditapis.com monitors and webhooks, and (since 0.4.0) sending the team product feedback the agent drafted and you reviewed.
+redditapis-mcp is the official MCP server for RedditAPIs, built for developers and AI agents that need live Reddit data in Claude, Cursor, Windsurf, VS Code or any MCP client, with no Reddit developer app. Your agent can search posts and comments, read subreddit feeds and rules, expand comment trees, look up users and communities, and set up monitors that send new matching posts to your webhook. Reads cost $0.002 per call, and new accounts get $0.50 of free credit with no card. The server only reads Reddit; posting, commenting and voting stay on the RedditAPIs REST API. Every tool maps to one endpoint at api.redditapis.com.
 
-Ask your agent to search Reddit for a topic, read a community's top posts of the week, pull a user's comment history, surface the redditors talking about a product, or read a subreddit's rules before you engage, and it calls the API for you. It can also set up a monitor that watches a subreddit for new posts matching a filter and delivers them to a webhook, then check what it's actually delivered. Every tool maps to a REST endpoint at `https://api.redditapis.com`; the server holds no state and forwards your API key on each call.
+Install: `npx -y redditapis-mcp@latest` with `REDDITAPIS_KEY` from https://www.redditapis.com
+
+Hosted, sign in instead of pasting a key (Claude Code): `claude mcp add --transport http reddit https://api.redditapis.com/mcp` (carries every tool except the 5 that read your own account)
+
+Website: https://www.redditapis.com/mcp
 
 ## Quick start
 
@@ -340,9 +344,11 @@ npm start       # run the stdio server (needs REDDITAPIS_KEY)
 
 ## FAQ
 
-**Do I need a Reddit developer account?** No. Get an API key at [redditapis.com](https://www.redditapis.com); there is no application or approval step.
+**Do I need a Reddit developer app?** No. One RedditAPIs key covers every read, with no Reddit developer app to register.
 
-**Can it post, comment, or vote?** No. All 30 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. Of the other 15, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` and `reddit_account_payments` read your own balance, plan and top-up history.
+**What does it cost?** $0.002 per read, with $0.50 of free credit at signup and no card. Monitors need a monitoring plan, which has no free tier.
+
+**Can it post, comment or vote?** Not through this server. It reads Reddit only; writes are on the RedditAPIs REST API. All 30 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. Of the other 17, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), `reddit_set_watch` sets up a whole watch in one call, `reddit_explain` says where the rows you hold came from, the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` and `reddit_account_payments` read your own balance, plan and top-up history.
 
 **Which clients are supported?** Claude Desktop, Claude Code, Cursor, Windsurf, and VS Code (Copilot agent mode), or any Model Context Protocol client.
 
