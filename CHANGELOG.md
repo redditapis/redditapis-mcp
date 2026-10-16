@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Every tool has a title and all four annotation hints
+
+Each of the 47 tools now registers a short, human-readable `title` (for
+example "Search Posts", "Delete Webhook") and the four MCP tool annotation
+hints: `readOnlyHint`, `destructiveHint`, `idempotentHint` and
+`openWorldHint`. Reads of Reddit data are read-only and open-world; reads of
+the account's own state (balance, payments, monitors, webhooks, deliveries,
+feedback) are read-only and closed-world. Writes are marked destructive when
+they delete, discard or overwrite (`reddit_monitor_remove`,
+`reddit_monitor_webhook_delete`, `reddit_monitor_update`, whose filter
+replaces the old one, and `reddit_feedback_send`, which can discard drafts),
+and idempotent only where repeating the call changes nothing more. Before
+this, every tool's title was its own name and only two hints were set. Tool
+names, input schemas and behaviour are unchanged. A new test fails if any
+registered tool lacks a title or a hint.
+
 ### reddit_account_payments
 
 The top-up history of the account behind this API key: each payment's amount,

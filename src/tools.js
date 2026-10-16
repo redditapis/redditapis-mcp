@@ -13,9 +13,10 @@
 // task #43) is a DIFFERENT kind of write: it configures the customer's OWN
 // redditapis.com account (an alerting subscription), the same risk class as
 // reading their own usage -- it never posts, votes, or DMs anywhere. Those tools
-// are marked `write: true` (and `destructive: true` for remove/delete), which
-// index.js turns into MCP's `readOnlyHint`/`destructiveHint` annotations so a
-// client can surface a confirmation before calling them.
+// are marked `write: true` (and `destructive: true` for remove/delete). The
+// title and all four MCP annotation hints each tool registers with live in
+// src/annotations.js (readOnlyHint is derived from `write`), so a client can
+// surface a confirmation before calling them.
 //
 // BODY-BEARING TOOLS: a POST tool's args become a JSON request body instead of
 // a query string (see buildBody below). `filterSpecFields` on a tool declares

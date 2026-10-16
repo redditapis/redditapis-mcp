@@ -17,6 +17,7 @@ import { createFeedbackHandler, sameFailure } from "./feedback.js";
 import { createSetWatchHandler } from "./watch.js";
 import { createReadLedger, createExplainHandler } from "./provenance.js";
 import { registerPlaybooks } from "./playbooks.js";
+import { toolAnnotations } from "./annotations.js";
 
 // Read from package.json rather than a hand-maintained literal -- this drifted
 // silently to "0.1.0" while the published package reached 0.1.12, so every
@@ -422,12 +423,9 @@ export function createServer({
     // a tools/call naming it fails as an unknown tool, never reaching the API.
     if (inlineCredentials === false && takesInlineCredentials(tool)) continue;
     const method = tool.method || "GET";
-    const annotations = {
-      title: tool.name,
-      readOnlyHint: !tool.write,
-      destructiveHint: Boolean(tool.destructive),
-      openWorldHint: true,
-    };
+    // Title and all four hints come from src/annotations.js, which throws for
+    // a tool with no row, so a new tool cannot register without them.
+    const { title, annotations } = toolAnnotations(tool);
     let handler;
     if (tool.local) {
       handler = LOCAL_HANDLERS[tool.local];
@@ -447,7 +445,7 @@ export function createServer({
     }
     server.registerTool(
       tool.name,
-      { description: tool.description, inputSchema: tool.shape, annotations },
+      { title, description: tool.description, inputSchema: tool.shape, annotations },
       handler,
     );
   }
