@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### reddit_account_payments
+
+The top-up history of the account behind this API key: each payment's amount,
+the credits it added, its status and when it happened, newest first. Free and
+never metered, like `reddit_account_me`, which gives the balance. Backed by
+`GET /account/payments`, verified live (401 without a key, while an unknown
+`/account/*` path is 404). 47 tools.
+
 ## 0.10.3 (2026-10-14)
 
 ### reddit_post_comments takes limit, depth and sort

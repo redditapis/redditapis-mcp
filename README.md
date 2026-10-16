@@ -100,7 +100,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-46 tools and 3 playbook resources: 30 Reddit reads, 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 1 account tool (`reddit_account_me`, which is also where the credit balance lives). Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+47 tools and 3 playbook resources: 30 Reddit reads, 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -222,6 +222,7 @@ Modelled on Claude Code's own feedback tool. When a call fails in a way that is 
 | `reddit_feedback_send` | `POST /feedback` | `action: "draft"` (default) queues a report locally and sends nothing; `"list"` shows the queue; `"send"` posts only the drafts you name; `"discard"` drops them. |
 | `reddit_explain` | none (in-process) | Provenance for the rows already fetched in this session: per completed call, the tool, the endpoint, when the response arrived, how old that copy now is, the upstream request id and the response size. The read path holds no response cache, so the age is the age of your copy, not of a stored row. |
 | `reddit_account_me` | `GET /account/me` | How much credit this key has left, before spending any. Free, never metered. |
+| `reddit_account_payments` | `GET /account/payments` | Every top-up on this key: amount, credits added, status and date, newest first. Free, never metered. |
 | `reddit_feedback_get` | `GET /feedback/{id}` | Read a sent report's status (`new`, `triaged`, `shipped`, `declined`) and the team's response. |
 
 ## Usage examples
@@ -341,7 +342,7 @@ npm start       # run the stdio server (needs REDDITAPIS_KEY)
 
 **Do I need a Reddit developer account?** No. Get an API key at [redditapis.com](https://www.redditapis.com); there is no application or approval step.
 
-**Can it post, comment, or vote?** No. All 30 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. Of the other 14, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` reads your own balance and plan.
+**Can it post, comment, or vote?** No. All 30 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. Of the other 15, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` and `reddit_account_payments` read your own balance, plan and top-up history.
 
 **Which clients are supported?** Claude Desktop, Claude Code, Cursor, Windsurf, and VS Code (Copilot agent mode), or any Model Context Protocol client.
 
