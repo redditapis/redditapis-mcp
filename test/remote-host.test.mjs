@@ -251,7 +251,7 @@ const API_408 = '{"error":"upstream_timeout","message":"The read did not complet
   ok("a socket closed after the request arrived is never re-sent: exactly 1 hit");
 }
 
-// 0.10.5: the API answers a read whose wall-clock budget ran out with 503 and the
+// 0.11.0: the API answers a read whose wall-clock budget ran out with 503 and the
 // same upstream_timeout value (it used to be 408). Same unbilled per-read refusal,
 // so the same ONE retry, the "did not complete in time" hint, Retry-After honoured,
 // and the whole call kept inside the client timeout.

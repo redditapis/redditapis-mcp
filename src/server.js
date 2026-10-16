@@ -315,7 +315,7 @@ export function createServer({
         (status === 408 && err === "upstream_timeout");
     };
     // The wait comes from the body's retry_after, else the Retry-After header
-    // (delta-seconds), else 2 s; clamped 1..5 s either way (0.10.5: the header).
+    // (delta-seconds), else 2 s; clamped 1..5 s either way (0.11.0: the header).
     const retryAfterMs = (text, res) => {
       let s = Number(parsedBody(text)?.retry_after);
       if (!(Number.isFinite(s) && s > 0)) s = Number(res?.headers?.get?.("retry-after"));

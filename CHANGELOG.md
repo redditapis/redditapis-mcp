@@ -18,7 +18,10 @@ clamped to 1 to 5 seconds. The retry is sent only when at least 3 seconds of
 at what is left, so the whole tool call ends inside the client timeout; a
 refusal that arrives too late is answered at once with its hint. Writes are
 never retried. `test/remote-host.test.mjs` covers the retry, the hint, the
-header, the write control and the timeout bound.
+header, the write control and the timeout bound. The same bound now covers the
+gateway-page and refused-connection retries too: each is sent only when at least
+3 s of `REDDITAPIS_TIMEOUT_MS` are left after its wait, so with a client timeout
+under about 3 s plus the delay those retries are no longer sent at all.
 
 ### README opening for the listings (README only)
 
