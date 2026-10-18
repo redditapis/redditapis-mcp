@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/redditapis-mcp)](https://www.npmjs.com/package/redditapis-mcp)
 [![license](https://img.shields.io/npm/l/redditapis-mcp)](./LICENSE)
 
-redditapis-mcp is the official MCP server for RedditAPIs, built for developers and AI agents that need live Reddit data in Claude, Cursor, Windsurf, VS Code or any MCP client, with no Reddit developer app. Your agent can search posts and comments, read subreddit feeds and rules, expand comment trees, look up users and communities, and set up monitors that send new matching posts to your webhook. Reads cost $0.002 per call, and new accounts get $0.50 of free credit with no card. The server only reads Reddit; posting, commenting and voting stay on the RedditAPIs REST API. Every tool maps to one endpoint at api.redditapis.com.
+redditapis-mcp is the official MCP server for RedditAPIs, built for developers and AI agents that need live Reddit data in Claude, Cursor, Windsurf, VS Code or any MCP client, with no Reddit developer app. Your agent can search posts and comments, read subreddit feeds and rules, expand comment trees, look up users and communities, and set up monitors that send new matching posts to your webhook. Reads cost $0.0015 per call (or a monthly read plan from $19 for 30,000 reads), every account gets 1,000 free reads a month, and new accounts get $0.50 of free credit with no card. The server only reads Reddit; posting, commenting and voting stay on the RedditAPIs REST API. Every tool maps to one endpoint at api.redditapis.com.
 
 Install: `npx -y redditapis-mcp@latest` with `REDDITAPIS_KEY` from https://www.redditapis.com
 
@@ -346,7 +346,7 @@ npm start       # run the stdio server (needs REDDITAPIS_KEY)
 
 **Do I need a Reddit developer app?** No. One RedditAPIs key covers every read, with no Reddit developer app to register.
 
-**What does it cost?** $0.002 per read, with $0.50 of free credit at signup and no card. Monitors need a monitoring plan, which has no free tier.
+**What does it cost?** $0.0015 per read pay as you go, or a monthly read plan from $19 for 30,000 reads; every account gets 1,000 free reads a month, plus $0.50 of free credit at signup and no card. Monitors need a monitoring plan, which has no free tier.
 
 **Can it post, comment or vote?** Not through this server. It reads Reddit only; writes are on the RedditAPIs REST API. All 30 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. Of the other 17, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), `reddit_set_watch` sets up a whole watch in one call, `reddit_explain` says where the rows you hold came from, the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` and `reddit_account_payments` read your own balance, plan and top-up history.
 
