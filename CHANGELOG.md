@@ -6,9 +6,8 @@
 
 The instructions said "most $0.002", a figure written into this file. The day
 read plans moved the read rate to $0.0015, every MCP client would have been told
-a price the API no longer bills (#102). The hosted server now passes the rate
-its own billing charges (`createServer({ readRateUsd })`, from the API's pricing
-module), and the local server names no figure and points at
+a price the API no longer bills. The hosted server now passes the rate
+its own billing charges (`createServer({ readRateUsd })`, the rate the API bills), and the local server names no figure and points at
 redditapis.com/pricing. A missing, non-positive or non-finite rate falls back to
 the figure-free sentence. test/read-price.test.mjs covers both modes and refuses
 a price literal in src/server.js. The instructions stay under the 2048-character

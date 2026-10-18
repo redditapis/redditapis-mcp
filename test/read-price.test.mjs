@@ -1,5 +1,5 @@
 // read-price.test.mjs: the instructions never name a read price the caller did
-// not pass (backlog #102). The hosted server passes the rate its billing charges;
+// not pass. The hosted server passes the rate its billing charges;
 // the local server names no figure. A published "$0.002" here went stale the day
 // read plans moved the read rate.
 import assert from "node:assert/strict";
