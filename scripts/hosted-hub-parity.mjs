@@ -33,11 +33,14 @@ export const DEFAULT_HUB_URL = "https://www.redditapis.com/mcp";
 // that says N means the table has N rows.
 const TITLE_RE = /<title>\s*Reddit MCP:\s*(\d+)\s+Tools\b[^<]*<\/title>/i;
 
-// The hub lists ENDPOINT-BACKED tools (one row per tool with a REST path); a
-// local tool such as reddit_explain, which answers from the catalog itself and
-// calls no endpoint, is not a hub row. Count the way the hub counts.
-export function endpointBackedCount(tools) {
-  return (tools || []).filter((t) => t && typeof t.path === "string" && t.path.length > 0).length;
+// The hub lists EVERY tool tools/list returns: the REST-backed ones and the local
+// ones (path null, such as reddit_explain, which answers from the catalog itself),
+// one row each; its title and every count on the page derive from that list. So
+// the catalog is counted the same way, every tool. Counting only the REST-backed
+// tools reported HUB BEHIND after every publish (46 vs 47) while hub and catalog
+// agreed, a permanent false alarm.
+export function hubToolCount(tools) {
+  return (tools || []).filter(Boolean).length;
 }
 
 /** The tool count the hub states, or null when the title does not carry one. */
@@ -69,10 +72,10 @@ export function hubVerdict({ catalogCount, hubCount, hubUrl = DEFAULT_HUB_URL, v
     ] };
   }
   if (hubCount === catalogCount) {
-    return { ok: true, code: 0, lines: [`[hub-parity] IN STEP: the hosted hub states ${hubCount} tools and this catalog exposes ${catalogCount} endpoint-backed tools.`] };
+    return { ok: true, code: 0, lines: [`[hub-parity] IN STEP: the hosted hub states ${hubCount} tools and this catalog exposes ${catalogCount} tools.`] };
   }
   return { ok: false, code: 1, lines: [
-    `[hub-parity] HUB BEHIND: this catalog${version ? ` (${version})` : ""} exposes ${catalogCount} endpoint-backed tools; ${hubUrl} states ${hubCount}.`,
+    `[hub-parity] HUB BEHIND: this catalog${version ? ` (${version})` : ""} exposes ${catalogCount} tools; ${hubUrl} states ${hubCount}.`,
     "  Right after a publish that changed the catalog this is expected, and it stays wrong until the site",
     "  repo bumps its redditapis-mcp dependency and updates every surface that states the count. Do it now:",
     ...HUB_FILES.map((f) => `    - ${f}`),
@@ -107,7 +110,7 @@ async function main() {
     console.error(`[hub-parity] CANNOT EVALUATE: ${hubUrl} did not answer after 3 attempts (${html.error}). Not a pass.`);
     process.exit(2);
   }
-  const v = hubVerdict({ catalogCount: endpointBackedCount(TOOLS), hubCount: parseHubToolCount(html), hubUrl, version });
+  const v = hubVerdict({ catalogCount: hubToolCount(TOOLS), hubCount: parseHubToolCount(html), hubUrl, version });
   for (const l of v.lines) (v.ok ? console.log : console.error)(l);
   process.exit(v.code);
 }
