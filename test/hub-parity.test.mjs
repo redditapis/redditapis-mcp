@@ -4,7 +4,7 @@
 // fixtures, and the live fetch is left to `npm run check:hub-parity`.
 import assert from "node:assert/strict";
 import { TOOLS } from "../src/tools.js";
-import { parseHubToolCount, hubVerdict, endpointBackedCount, HUB_FILES, DEFAULT_HUB_URL } from "../scripts/hosted-hub-parity.mjs";
+import { parseHubToolCount, hubVerdict, hubToolCount, HUB_FILES, DEFAULT_HUB_URL } from "../scripts/hosted-hub-parity.mjs";
 
 let n = 0;
 const ok = (m) => { n += 1; console.log(`  [ok  ] ${m}`); };
@@ -35,7 +35,7 @@ const ok = (m) => { n += 1; console.log(`  [ok  ] ${m}`); };
   const v = hubVerdict({ catalogCount: 46, hubCount: 45, version: "0.11.0" });
   assert.equal(v.ok, false); assert.equal(v.code, 1);
   const text = v.lines.join("\n");
-  assert.match(text, /exposes 46 endpoint-backed tools/); assert.match(text, /states 45/); assert.match(text, /0\.11\.0/);
+  assert.match(text, /exposes 46 tools/); assert.ok(!/endpoint-backed/.test(text)); assert.match(text, /states 45/); assert.match(text, /0\.11\.0/);
   assert.ok(text.includes(DEFAULT_HUB_URL));
   for (const f of HUB_FILES) assert.ok(text.includes(f), `names ${f}`);
   assert.match(text, /reconcile-endpoints\.mjs/);
@@ -52,12 +52,16 @@ const ok = (m) => { n += 1; console.log(`  [ok  ] ${m}`); };
 }
 
 // 5. the catalog this check compares against is the shipped one, counted the way the hub counts
-//    (endpoint-backed rows only: reddit_explain answers locally and is not a hub row), and a plant
-//    must change the verdict
+//    (every tool, local ones included: the hub lists reddit_explain as a row), and a plant must
+//    change the verdict
 {
-  const base = endpointBackedCount(TOOLS);
-  assert.ok(base < TOOLS.length, "the catalog carries at least one local tool without a path (reddit_explain)");
-  assert.equal(endpointBackedCount([{ path: "/x" }, { name: "local" }, { path: "" }, null]), 1);
+  const base = hubToolCount(TOOLS);
+  assert.equal(base, TOOLS.length, "every tool counts");
+  assert.ok(TOOLS.some((t) => !t.path), "the catalog carries a local tool without a path (reddit_explain)");
+  assert.equal(hubToolCount([{ path: "/x" }, { name: "local", path: null }, { path: "" }, null]), 3, "a local tool counts; a null slot does not");
+  // The false alarm this replaced: 47 tools, one of them local, and a hub titled 47 must be IN STEP.
+  const fixture = Array.from({ length: 46 }, (_, i) => ({ name: `t${i}`, path: `/p${i}` })).concat([{ name: "reddit_explain", path: null }]);
+  assert.equal(hubVerdict({ catalogCount: hubToolCount(fixture), hubCount: 47 }).code, 0, "47 tools with one local tool vs a hub of 47 is IN STEP");
   assert.equal(hubVerdict({ catalogCount: base, hubCount: base }).code, 0);
   const planted = base + 1; // what the next publish with one more tool would carry
   const v = hubVerdict({ catalogCount: planted, hubCount: base });
