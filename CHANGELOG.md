@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.0 (2026-10-18)
+
+### The read price in the server instructions is passed in, never written
+
+The instructions said "most $0.002", a figure written into this file. The day
+read plans moved the read rate to $0.0015, every MCP client would have been told
+a price the API no longer bills (#102). The hosted server now passes the rate
+its own billing charges (`createServer({ readRateUsd })`, from the API's pricing
+module), and the local server names no figure and points at
+redditapis.com/pricing. A missing, non-positive or non-finite rate falls back to
+the figure-free sentence. test/read-price.test.mjs covers both modes and refuses
+a price literal in src/server.js. The instructions stay under the 2048-character
+budget (2044 local, 1853 hosted).
+
+The README states the launch prices: $0.0015 per read pay as you go, monthly
+read plans from $19 for 30,000 reads, and 1,000 free reads a month.
+
 ## 0.11.0 (2026-10-16)
 
 Released to npm as 0.11.0: the changes below plus reddit_account_payments (#23), which makes this a minor release (the version-class gate refuses a patch that adds a tool).

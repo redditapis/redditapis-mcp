@@ -165,13 +165,28 @@ export function hintFor(status, path, error) {
 const SESSION_SENTENCE =
   "reddit_home_feed and reddit_user_upvoted/saved/hidden/gilded need the user's own Reddit cookies (reddit_session, loid) from POST /api/reddit/login on the REST API, not an MCP tool. ";
 
-export function buildInstructions({ inlineCredentials = true } = {}) {
-  return INSTRUCTIONS_HEAD + (inlineCredentials ? SESSION_SENTENCE : "") + INSTRUCTIONS_TAIL;
+// THE READ PRICE IS PASSED IN, NEVER WRITTEN HERE. The hosted server passes the
+// rate its own billing charges (readRateUsd, from the API's pricing module), so
+// the instructions can never name a price the API does not bill; a published
+// figure in this file went stale the day read plans changed the read rate.
+// Without a rate (the local stdio server) the sentence names no figure and
+// points at the pricing page. A non-number or a non-positive rate is ignored.
+export function readPriceSentence(readRateUsd) {
+  const r = Number(readRateUsd);
+  const priced = readRateUsd !== null && readRateUsd !== undefined && readRateUsd !== "" && Number.isFinite(r) && r > 0;
+  return priced
+    ? `Read tools bill per call (most $${r}); monitor, webhook and feedback tools are free. `
+    : "Read tools bill per call (prices: redditapis.com/pricing); monitor, webhook and feedback tools are free. ";
 }
 
+export function buildInstructions({ inlineCredentials = true, readRateUsd = null } = {}) {
+  return INSTRUCTIONS_LEAD + readPriceSentence(readRateUsd) + INSTRUCTIONS_HEAD + (inlineCredentials ? SESSION_SENTENCE : "") + INSTRUCTIONS_TAIL;
+}
+
+const INSTRUCTIONS_LEAD = "redditapis.com MCP server. ";
+
 const INSTRUCTIONS_HEAD =
-  "redditapis.com MCP server. Read tools cost credits per call (most $0.002); monitor, webhook and feedback tools are free. " +
-  "reddit_account_me shows the balance for free before a large batch; on a 402, give the user the error's top-up URL. " +
+  "reddit_account_me shows the balance free before a big batch; on a 402, give the user the error's top-up URL. " +
   "reddit_search: sort='relevance' with a large `limit` for best matches; sort_type='score' re-orders that page; a quoted phrase or `subreddit` narrows it. " +
   "reddit_deep_comment_search returns matching comments; reddit_search_comments only their posts. " +
   "reddit_search_communities searches subreddits; reddit_subreddits_popular/new/default browse them. ";
@@ -215,6 +230,9 @@ export const INSTRUCTIONS = buildInstructions({ inlineCredentials: true });
  *        proxy (takesInlineCredentials in tools.js) UNREGISTERED, and drops the
  *        instructions sentence that names them. A remote host passes false so a
  *        connected app is never asked to send a Reddit session through it.
+ * @param {number|null} [opts.readRateUsd] the read price the API bills right now.
+ *        The hosted server passes it from its own pricing; omitted (the local
+ *        server) the instructions name no figure (readPriceSentence).
  */
 export function createServer({
   apiKey,
@@ -227,6 +245,7 @@ export function createServer({
   nowImpl = () => Date.now(),
   retryDelaysMs = [3000, 8000],
   inlineCredentials = true,
+  readRateUsd = null,
 } = {}) {
   // A STRING "false" from an environment variable must not silently leave the
   // cookie tools exposed on a hosted server (review 2026-10-02): booleans only.
@@ -430,7 +449,7 @@ export function createServer({
 
   const server = new McpServer(
     { name: "redditapis", version: VERSION },
-    { instructions: buildInstructions({ inlineCredentials: inlineCredentials !== false }) },
+    { instructions: buildInstructions({ inlineCredentials: inlineCredentials !== false, readRateUsd }) },
   );
 
   // Handlers for tools that carry local: "<name>" in the catalog. A name the
