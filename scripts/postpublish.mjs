@@ -14,6 +14,13 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// npm 10 runs postpublish even under `npm publish --dry-run`; nothing here may run then,
+// because registry-drift --publish would push the MCP Registry entry for real.
+if (process.env.npm_config_dry_run === "true") {
+  console.log("[postpublish] dry-run: skipped");
+  process.exit(0);
+}
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STEPS = [
   ["official MCP registry", ["scripts/registry-drift.mjs", "--publish"]],
