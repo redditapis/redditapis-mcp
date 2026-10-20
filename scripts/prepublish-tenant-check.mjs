@@ -64,7 +64,12 @@ function assertVersionClass() {
   const scratch = mkdtempSync(join(tmpdir(), "prepublish-class-"));
   let publishedTools;
   try {
-    execFileSync("npm", ["pack", `${pkg.name}@${published}`, "--pack-destination", scratch], { stdio: "pipe" });
+    // Under `npm publish --dry-run` npm exports npm_config_dry_run=true, and a nested `npm pack`
+    // inheriting it writes no tarball, so the read below failed. Pack with that flag removed.
+    const packEnv = { ...process.env };
+    delete packEnv.npm_config_dry_run;
+    delete packEnv.NPM_CONFIG_DRY_RUN;
+    execFileSync("npm", ["pack", `${pkg.name}@${published}`, "--pack-destination", scratch], { stdio: "pipe", env: packEnv });
     const tgz = execFileSync("ls", [scratch], { encoding: "utf8" }).trim().split("\n").find((f) => f.endsWith(".tgz"));
     execFileSync("tar", ["-xzf", join(scratch, tgz), "-C", scratch]);
     publishedTools = readFileSync(join(scratch, "package", "src", "tools.js"), "utf8");
