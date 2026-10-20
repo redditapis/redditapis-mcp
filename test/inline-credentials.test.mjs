@@ -26,6 +26,9 @@ const CREDENTIAL_INPUTS = new Set([
   "session_tracker", "pc", "proxy",
 ]);
 const EXPECTED_HIDDEN = [
+  // #16 (2026-10-20): reddit_connect takes the caller's Reddit cookies once, to store them
+  // server-side; a remote host must not pipe them, so it is hidden there like the five below.
+  "reddit_connect",
   "reddit_home_feed",
   "reddit_user_gilded",
   "reddit_user_hidden",
@@ -56,7 +59,7 @@ const toolTokens = (text) => [...new Set([...text.matchAll(/\breddit_[a-z0-9_]+\
 const full = await connect({});
 const fullWithCreds = full.tools.filter((t) => credentialInputs(t).length).map((t) => t.name).sort();
 assert.ok(full.tools.length >= 44, `default listed only ${full.tools.length} tools`);
-assert.deepEqual(fullWithCreds, EXPECTED_HIDDEN, `default must list the five credential-taking tools, listed ${JSON.stringify(fullWithCreds)}`);
+assert.deepEqual(fullWithCreds, EXPECTED_HIDDEN, `default must list the credential-taking tools, listed ${JSON.stringify(fullWithCreds)}`);
 assert.equal(full.instructions, INSTRUCTIONS, "the default server must send the default instructions");
 ok(`default lists ${full.tools.length} tools, ${fullWithCreds.length} of them taking Reddit cookies`);
 

@@ -81,6 +81,18 @@ export const TOOL_ANNOTATIONS = {
   reddit_monitor_webhook_delete: { title: "Delete Webhook", readOnly: false, destructive: true, idempotent: true, openWorld: false },
   reddit_feedback_send: { title: "Send Feedback Report", readOnly: false, destructive: true, idempotent: false, openWorld: false },
   reddit_set_watch: { title: "Create Watch", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+
+  // Writes AS the customer's own Reddit account through the stored session (#16). openWorld:
+  // each reaches Reddit itself. comment, submit and dm add content and are not idempotent;
+  // vote sets a state (idempotent); connect overwrites and disconnect deletes the stored
+  // credential, so both are destructive.
+  reddit_connect: { title: "Connect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: true },
+  reddit_session_status: { title: "Reddit Connection Status", ...READ_OWN },
+  reddit_disconnect: { title: "Disconnect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: false },
+  reddit_comment: { title: "Post Comment", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+  reddit_submit: { title: "Submit Post", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+  reddit_vote: { title: "Vote", readOnly: false, destructive: false, idempotent: true, openWorld: true },
+  reddit_dm: { title: "Send Direct Message", readOnly: false, destructive: false, idempotent: false, openWorld: true },
 };
 
 /**
