@@ -7,9 +7,8 @@
 // {name}/{id} in a tool's `path` (e.g. /api/reddit/sub/{name}/top), which are
 // interpolated into the URL and removed from the query string.
 //
-// WRITES: reddit writes (comment/vote/DM -- posting AS the customer to Reddit
-// itself) are a separate authenticated surface and remain intentionally out of
-// scope here, that boundary is unchanged. Monitor/webhook management (2026-08-11,
+// WRITES AS THE CUSTOMER (comment/submit/vote/DM) act through the session stored
+// by reddit_connect (#16, operator decision 2026-10-19). Monitor/webhook management (2026-08-11,
 // task #43) is a DIFFERENT kind of write: it configures the customer's OWN
 // redditapis.com account (an alerting subscription), the same risk class as
 // reading their own usage -- it never posts, votes, or DMs anywhere. Those tools
@@ -837,6 +836,7 @@ export const TOOLS = [
     path: "/api/reddit/session",
     method: "POST",
     write: true,
+    destructive: true,
     description:
       "Stores the customer's own Reddit session once, so the comment, submit, vote and DM tools in this server act as that account without cookies in later calls. The session is kept server-side, encrypted (AES-256-GCM, key held only by the API), against this API key's account, after a check with Reddit: a logged-out session is refused with SESSION_LOGGED_OUT. Takes Reddit's session and loid cookies (from the REST login endpoint or the customer's own browser), plus the CSRF cookie for voting and messaging. Connecting again replaces the stored session. Free.",
     shape: {
@@ -850,7 +850,7 @@ export const TOOLS = [
     name: "reddit_session_status",
     path: "/api/reddit/session",
     description:
-      "Whether a Reddit session is connected for this account: `connected`, the Reddit username, `status` (active, or dead after Reddit rejected it), and when it was stored and last used. The cookies are not returned. Free.",
+      "Whether a Reddit session is connected for this account: `connected`, the Reddit username, `status` (active, or dead after Reddit rejected it), and when it was first stored, last updated and last used. The cookies are not returned. Free.",
     shape: {},
   },
   {
@@ -869,7 +869,7 @@ export const TOOLS = [
     method: "POST",
     write: true,
     description:
-      "Posts a comment on a Reddit post as the connected account. A public action on Reddit under the customer's name, marked as a write so a client can ask before it runs. Plain text is rich-text encoded. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
+      "Posts a comment on a Reddit post as the connected account. A public action on Reddit under the customer's name, marked as a write so a client can ask before it runs. The text is posted as Reddit markdown. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
     shape: {
       post_url: z.string().min(1).describe("Any reddit.com post URL."),
       text: z.string().min(1).describe("The comment text."),
@@ -888,6 +888,10 @@ export const TOOLS = [
       title: z.string().min(1).describe("Post title."),
       text: z.string().optional().describe("Body text, for kind self."),
       url: z.string().optional().describe("Target URL, for kind link."),
+      flair_id: z.string().optional().describe("Post flair template id, for subreddits that require flair."),
+      flair_text: z.string().optional().describe("Post flair text, when the flair template allows editing it."),
+      nsfw: z.boolean().optional().describe("Mark the post NSFW."),
+      spoiler: z.boolean().optional().describe("Mark the post as a spoiler."),
     },
   },
   {
@@ -898,7 +902,7 @@ export const TOOLS = [
     description:
       "Upvotes, downvotes or clears the vote on a post (t3_) or comment (t1_) as the connected account. Voting needs the CSRF cookie in the stored session. Billed at the vote rate.",
     shape: {
-      thing_id: z.string().min(1).describe("t3_xxx for a post, t1_xxx for a comment."),
+      thing_id: z.string().regex(/^t[13]_[a-z0-9]+$/).describe("t3_xxx for a post, t1_xxx for a comment."),
       direction: z.enum(["up", "down", "none"]).describe("up, down, or none to clear an existing vote."),
     },
   },
@@ -911,7 +915,7 @@ export const TOOLS = [
       "Sends a private Reddit chat message as the connected account. A direct message to a real person under the customer's name, marked as a write so a client can ask before it runs. Messaging needs the CSRF cookie in the stored session. Billed at the DM rate.",
     shape: {
       to_username: z.string().optional().describe("Recipient username. Provide this or to_user_t2."),
-      to_user_t2: z.string().optional().describe("Recipient t2_ id directly, instead of to_username."),
+      to_user_t2: z.string().regex(/^t2_[a-z0-9]+$/).optional().describe("Recipient t2_ id directly, instead of to_username."),
       message: z.string().min(1).describe("Plain-text message body."),
     },
   },

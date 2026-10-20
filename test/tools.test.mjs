@@ -168,7 +168,7 @@ const WRITE_TOOL_NAMES = new Set([
   // openWorld (src/annotations.js) so a client asks the user first.
   "reddit_connect", "reddit_disconnect", "reddit_comment", "reddit_submit", "reddit_vote", "reddit_dm",
 ]);
-const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect"]);
+const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect", "reddit_connect"]);
 
 // READS THAT USE POST. The verb is not the question, the EFFECT is: these send
 // their input in a body because it does not fit in a URL (100 comment ids), and
