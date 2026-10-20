@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.13.1 (2026-10-20)
+## 0.14.0 (2026-10-20)
 
 - New read tool `reddit_post_duplicates`: every other post that shares a post's link, across subreddits (`GET /api/reddit/post/{id}/duplicates`), up to 100 in one read.
 
