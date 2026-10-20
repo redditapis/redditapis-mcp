@@ -320,6 +320,18 @@ export const TOOLS = [
     },
   },
   {
+    name: "reddit_post_duplicates",
+    path: "/api/reddit/post/{id}/duplicates",
+    description:
+      "Every other Reddit post that shares this post's link: the list Reddit shows on a post's \"other discussions\" tab, across all subreddits, so every conversation about one article, video or product page can be read, not only the first thread found. Returns the original `post`, `duplicates` (up to 100 in one read, not paged, `after` is null) and `available` (how many Reddit returned). A made-up or removed post id is a 404 NOT_FOUND. A text post usually has none.",
+    shape: {
+      id: z.string().min(1).describe("Reddit post id, e.g. '1sgjld3'. A t3_ prefix is optional."),
+      sort: z.enum(["num_comments", "new"]).optional().describe("num_comments (default, most discussed first) or new."),
+      crossposts_only: z.boolean().optional().describe("true returns only crossposts and leaves out independent submissions of the same URL."),
+      limit: z.number().int().min(1).max(100).optional().describe("How many duplicates to return, 1-100 (default 100)."),
+    },
+  },
+  {
     name: "reddit_search_communities",
     path: "/api/reddit/search/communities",
     description:
