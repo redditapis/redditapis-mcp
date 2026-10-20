@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/redditapis-mcp)](https://www.npmjs.com/package/redditapis-mcp)
 [![license](https://img.shields.io/npm/l/redditapis-mcp)](./LICENSE)
 
-redditapis-mcp is the official MCP server for RedditAPIs, built for developers and AI agents that need live Reddit data in Claude, Cursor, Windsurf, VS Code or any MCP client, with no Reddit developer app. Your agent can search posts and comments, read subreddit feeds and rules, expand comment trees, look up users and communities, and set up monitors that send new matching posts to your webhook. Reads cost $0.0015 per call (or a monthly read plan from $19 for 30,000 reads), every account gets 1,000 free reads a month, and new accounts get $0.50 of free credit with no card. The server only reads Reddit; posting, commenting and voting stay on the RedditAPIs REST API. Every tool maps to one endpoint at api.redditapis.com.
+redditapis-mcp is the official MCP server for RedditAPIs, built for developers and AI agents that need live Reddit data in Claude, Cursor, Windsurf, VS Code or any MCP client, with no Reddit developer app. Your agent can search posts and comments, read subreddit feeds and rules, expand comment trees, look up users and communities, and set up monitors that send new matching posts to your webhook. Reads cost $0.0015 per call (or a monthly read plan from $19 for 30,000 reads), every account gets 1,000 free reads a month, and new accounts get $0.50 of free credit with no card. Connect your Reddit account once to comment, post, vote and DM as you. Every tool maps to one endpoint at api.redditapis.com.
 
 Install: `npx -y redditapis-mcp@latest` with `REDDITAPIS_KEY` from https://www.redditapis.com
 
@@ -104,7 +104,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-47 tools and 3 playbook resources: 30 Reddit reads, 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (posting, commenting, voting, DMs) remain a separate authenticated surface and are intentionally out of scope here -- monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+54 tools and 3 playbook resources: 30 Reddit reads, 7 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -217,6 +217,20 @@ The bodies are documentation and name the calls they are recipes for, which is t
 { "method": "resources/read", "params": { "uri": "playbook://subreddit-audit" } }
 ```
 
+### Your Reddit account: connect once, then comment, post, vote and DM
+
+`reddit_connect` stores your Reddit session on our side, encrypted (AES-256-GCM, the key held only by the API), against this API key's account, after checking it with Reddit. Every write after that sends no cookies, so they never sit in your agent's tool calls or transcript. Each write acts publicly as you, so it is marked as a write and your client asks before it runs. Connecting, status and disconnecting are free.
+
+| Tool | Endpoint | What it does |
+|------|----------|--------------|
+| `reddit_connect` | `POST /api/reddit/session` | Store your Reddit session once (reddit_session and loid cookies; add csrf_token for votes and DMs). A logged-out session is refused. Free. |
+| `reddit_session_status` | `GET /api/reddit/session` | Whether a session is connected, its username, and when it was last used. Never returns the cookies. Free. |
+| `reddit_disconnect` | `POST /api/reddit/session/delete` | Delete the stored session. Free. |
+| `reddit_comment` | `POST /api/reddit/comment` | Comment on a post as you. |
+| `reddit_submit` | `POST /api/reddit/submit` | Submit a text or link post to a subreddit as you. |
+| `reddit_vote` | `POST /api/reddit/vote` | Upvote, downvote or clear a vote on a post or comment as you. |
+| `reddit_dm` | `POST /api/reddit/dm` | Send a private chat message as you. |
+
 ### Feedback: tell the team what broke, after you review the draft
 
 Modelled on Claude Code's own feedback tool. When a call fails in a way that is not your key, credits or a rate limit, when you ask for something no tool covers, or when a result is plainly wrong, the model can **draft** a report into a local queue (`~/.redditapis/feedback-queue.json`, at most 10 drafts, override the directory with `REDDITAPIS_FEEDBACK_DIR`). Nothing is sent until you ask to review the queue and name the drafts to send. Each report carries the last failing call's endpoint, status and request id, your client name and this package's version, so the team can act on it without a follow-up. Use `reddit_feedback_get` with the returned server id to see whether it was triaged, shipped or declined. Both tools are free.
@@ -308,7 +322,7 @@ Later, `reddit_monitor_deliveries` with `{ id: "<monitor id from the add respons
 
 ## No session needed for reads; monitor/webhook writes need an active plan
 
-Reads need nothing but your API key -- no account linking, login, or cookie step. Reddit write actions (posting, commenting, voting, sending DMs) are handled by a separate authenticated surface outside this package and remain deliberately not exposed here, so an agent using this server can never post, vote, or DM as you on Reddit. Monitor/webhook management tools are a different kind of write: they configure your OWN redditapis.com account (an alerting subscription) and require an active monitoring plan for anything that creates or changes state (`reddit_monitor_add`/`update`/`remove`, `reddit_monitor_webhook_create`/`test`/`delete`); reading your own list, health, or delivery history never does.
+Reads need nothing but your API key -- no account linking, login, or cookie step. Reddit write actions (commenting, posting, voting, sending DMs) need one extra step: `reddit_connect` stores your Reddit session on our side, encrypted, so later calls carry no cookies. Until you connect, no tool can post, vote or DM as you, and `reddit_disconnect` deletes the stored session at any time. Monitor/webhook management tools are a different kind of write: they configure your OWN redditapis.com account (an alerting subscription) and require an active monitoring plan for anything that creates or changes state (`reddit_monitor_add`/`update`/`remove`, `reddit_monitor_webhook_create`/`test`/`delete`); reading your own list, health, or delivery history never does.
 
 ## Troubleshooting
 
@@ -348,7 +362,7 @@ npm start       # run the stdio server (needs REDDITAPIS_KEY)
 
 **What does it cost?** $0.0015 per read pay as you go, or a monthly read plan from $19 for 30,000 reads; every account gets 1,000 free reads a month, plus $0.50 of free credit at signup and no card. Monitors need a monitoring plan, which has no free tier.
 
-**Can it post, comment or vote?** Not through this server. It reads Reddit only; writes are on the RedditAPIs REST API. All 30 Reddit-facing tools read Reddit; posting, commenting, voting, and DMs are a separate authenticated surface and are not exposed here. Of the other 17, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), `reddit_set_watch` sets up a whole watch in one call, `reddit_explain` says where the rows you hold came from, the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` and `reddit_account_payments` read your own balance, plan and top-up history.
+**Can it post, comment or vote?** Yes, after you connect your Reddit account once with `reddit_connect` (your session is stored encrypted on our side and never travels in later calls). `reddit_comment`, `reddit_submit`, `reddit_vote` and `reddit_dm` then act as that account, and each is marked as a write so your client asks before it runs. `reddit_disconnect` deletes the stored session. Of the other tools, the 10 monitor/webhook tools manage your OWN redditapis.com monitors and webhooks (a write, but never a write to Reddit itself), `reddit_set_watch` sets up a whole watch in one call, `reddit_explain` says where the rows you hold came from, the 3 feedback tools send or read a report to the redditapis.com team, and `reddit_account_me` and `reddit_account_payments` read your own balance, plan and top-up history.
 
 **Which clients are supported?** Claude Desktop, Claude Code, Cursor, Windsurf, and VS Code (Copilot agent mode), or any Model Context Protocol client.
 

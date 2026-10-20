@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.0 (2026-10-20)
+
+### Comment, post, vote and DM as your own Reddit account, after one connect
+
+Seven new tools. `reddit_connect` stores your Reddit session once, server-side and encrypted
+(AES-256-GCM, key held only by the API), against your API key's account, after checking it with
+Reddit. `reddit_comment`, `reddit_submit`, `reddit_vote` and `reddit_dm` then act as that account
+with no cookies in the call, so they never sit in an agent's tool arguments or transcript.
+`reddit_session_status` shows what is stored (never the cookies) and `reddit_disconnect` deletes it.
+
+Every write is marked `readOnlyHint: false` and `openWorldHint: true`, so a client can ask before it
+runs; `reddit_disconnect` is destructive. `reddit_connect` takes cookies, so a remote host built with
+`inlineCredentials: false` does not list it, like the other cookie-taking tools.
+
+Needs the API's stored-session endpoints (POST/GET /api/reddit/session, POST /api/reddit/session/delete).
+
 ## 0.12.0 (2026-10-18)
 
 ### The read price in the server instructions is passed in, never written

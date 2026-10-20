@@ -162,8 +162,13 @@ const WRITE_TOOL_NAMES = new Set([
   // class as the six above: it configures the caller's OWN redditapis.com
   // account and never posts, votes or messages on Reddit.
   "reddit_set_watch",
+  // #16 (operator decision 2026-10-19): writes AS the customer's own Reddit account through
+  // the session stored server-side by reddit_connect. A different risk class from the rows
+  // above, they post, vote and message on Reddit itself, which is why each is write: true and
+  // openWorld (src/annotations.js) so a client asks the user first.
+  "reddit_connect", "reddit_disconnect", "reddit_comment", "reddit_submit", "reddit_vote", "reddit_dm",
 ]);
-const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete"]);
+const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect"]);
 
 // READS THAT USE POST. The verb is not the question, the EFFECT is: these send
 // their input in a body because it does not fit in a URL (100 comment ids), and

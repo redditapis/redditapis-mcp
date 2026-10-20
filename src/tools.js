@@ -825,6 +825,96 @@ export const TOOLS = [
       "Returns the payment history of the account behind this API key: each top-up's amount, the credits it added, its status and when it happened, newest first. Free: not metered, and costs no credit.",
     shape: {},
   },
+
+  // ── WRITES AS THE CUSTOMER'S OWN REDDIT ACCOUNT, through a stored session (#16) ──
+  // Operator decision 2026-10-19: MCP write tools exist, and they reuse the REST login session
+  // STORED SERVER-SIDE, encrypted, against the account. reddit_connect is the one call that
+  // carries cookies; every write after it sends none, so cookies never sit in an agent's later
+  // tool arguments or transcript. Each write posts, votes or messages AS the customer on Reddit
+  // itself, so all of them are write: true and openWorld, and a client should confirm first.
+  {
+    name: "reddit_connect",
+    path: "/api/reddit/session",
+    method: "POST",
+    write: true,
+    description:
+      "Stores the customer's own Reddit session once, so the comment, submit, vote and DM tools in this server act as that account without cookies in later calls. The session is kept server-side, encrypted (AES-256-GCM, key held only by the API), against this API key's account, after a check with Reddit: a logged-out session is refused with SESSION_LOGGED_OUT. Takes Reddit's session and loid cookies (from the REST login endpoint or the customer's own browser), plus the CSRF cookie for voting and messaging. Connecting again replaces the stored session. Free.",
+    shape: {
+      reddit_session: z.string().min(1).describe("Reddit's session cookie."),
+      loid: z.string().min(1).describe("The loid cookie."),
+      csrf_token: z.string().optional().describe("The CSRF cookie. Needed for voting and messaging."),
+      token_v2: z.string().optional().describe("The token_v2 cookie, when the session has one."),
+    },
+  },
+  {
+    name: "reddit_session_status",
+    path: "/api/reddit/session",
+    description:
+      "Whether a Reddit session is connected for this account: `connected`, the Reddit username, `status` (active, or dead after Reddit rejected it), and when it was stored and last used. The cookies are not returned. Free.",
+    shape: {},
+  },
+  {
+    name: "reddit_disconnect",
+    path: "/api/reddit/session/delete",
+    method: "POST",
+    write: true,
+    destructive: true,
+    description:
+      "Deletes the stored Reddit session for this account. After this, the write tools answer with a request for cookies until a session is connected again. Idempotent: `deleted` is false when nothing was stored. Free.",
+    shape: {},
+  },
+  {
+    name: "reddit_comment",
+    path: "/api/reddit/comment",
+    method: "POST",
+    write: true,
+    description:
+      "Posts a comment on a Reddit post as the connected account. A public action on Reddit under the customer's name, marked as a write so a client can ask before it runs. Plain text is rich-text encoded. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
+    shape: {
+      post_url: z.string().min(1).describe("Any reddit.com post URL."),
+      text: z.string().min(1).describe("The comment text."),
+    },
+  },
+  {
+    name: "reddit_submit",
+    path: "/api/reddit/submit",
+    method: "POST",
+    write: true,
+    description:
+      "Submits a new post to a subreddit as the connected account: a text post (kind self) or a link post (kind link). A public action on Reddit under the customer's name, marked as a write so a client can ask before it runs; a subreddit's rules decide whether the post stays up. Billed at the write rate.",
+    shape: {
+      subreddit: z.string().min(1).describe("Subreddit name, without r/."),
+      kind: z.enum(["self", "link"]).describe("self = text post, link = URL post."),
+      title: z.string().min(1).describe("Post title."),
+      text: z.string().optional().describe("Body text, for kind self."),
+      url: z.string().optional().describe("Target URL, for kind link."),
+    },
+  },
+  {
+    name: "reddit_vote",
+    path: "/api/reddit/vote",
+    method: "POST",
+    write: true,
+    description:
+      "Upvotes, downvotes or clears the vote on a post (t3_) or comment (t1_) as the connected account. Voting needs the CSRF cookie in the stored session. Billed at the vote rate.",
+    shape: {
+      thing_id: z.string().min(1).describe("t3_xxx for a post, t1_xxx for a comment."),
+      direction: z.enum(["up", "down", "none"]).describe("up, down, or none to clear an existing vote."),
+    },
+  },
+  {
+    name: "reddit_dm",
+    path: "/api/reddit/dm",
+    method: "POST",
+    write: true,
+    description:
+      "Sends a private Reddit chat message as the connected account. A direct message to a real person under the customer's name, marked as a write so a client can ask before it runs. Messaging needs the CSRF cookie in the stored session. Billed at the DM rate.",
+    shape: {
+      to_username: z.string().optional().describe("Recipient username. Provide this or to_user_t2."),
+      to_user_t2: z.string().optional().describe("Recipient t2_ id directly, instead of to_username."),
+      message: z.string().min(1).describe("Plain-text message body."),
+    },
+  },
   {
     // ONE CALL INSTEAD OF THREE. Standing up a watch today means composing a
     // webhook registration, a monitor creation and a test delivery, each with
