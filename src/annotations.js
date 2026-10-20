@@ -36,6 +36,7 @@ export const TOOL_ANNOTATIONS = {
   reddit_search: { title: "Search Posts", ...READ_REDDIT },
   reddit_post_visibility: { title: "Post Visibility", ...READ_REDDIT },
   reddit_post_comments: { title: "Get Post Comments", ...READ_REDDIT },
+  reddit_post_duplicates: { title: "Get Post Duplicates", ...READ_REDDIT },
   reddit_search_communities: { title: "Search Communities", ...READ_REDDIT },
   reddit_search_comments: { title: "Search Posts by Comment", ...READ_REDDIT },
   reddit_deep_comment_search: { title: "Deep Comment Search", ...READ_REDDIT },
