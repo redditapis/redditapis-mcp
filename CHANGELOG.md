@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.1 (2026-10-25)
+
+- `reddit_monitor_health`: the description now explains the per-feed health fields: `consecutive_errors`, `last_poll_error.detail` (why a feed's checks are failing: `HTTP_403`, `HTTP_429` or `network_error`), and `retry_within_s` (the longest a failing feed waits for its next check). No code change.
+
 ## 0.14.0 (2026-10-20)
 
 - New read tool `reddit_post_duplicates`: every other post that shares a post's link, across subreddits (`GET /api/reddit/post/{id}/duplicates`), up to 100 in one read.
