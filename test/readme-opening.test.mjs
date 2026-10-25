@@ -33,8 +33,9 @@ const names = TOOLS.map((t) => t.name);
 const admin = names.filter((n) => /monitor|webhook|feedback|account/.test(n));
 const helpers = ["reddit_set_watch", "reddit_explain"].filter((n) => names.includes(n));
 // #16: the tools that act as the customer's connected Reddit account (connect, status,
-// disconnect, comment, submit, vote, dm) are neither reads nor account administration.
-const accountActions = TOOLS.filter((t) => /^\/api\/reddit\/(session|comment|submit|vote|dm)(\/|$)/.test(t.path || "")).map((t) => t.name);
+// disconnect, comment, submit, vote, dm) are neither reads nor account administration, and
+// neither are the scheduled-action tools (create, list, cancel), which post or comment later.
+const accountActions = TOOLS.filter((t) => /^\/api\/reddit\/(session|comment|submit|vote|dm|schedule)(\/|$)/.test(t.path || "")).map((t) => t.name);
 const reads = names.length - admin.length - helpers.length - accountActions.length;
 const others = names.length - reads;
 

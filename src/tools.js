@@ -581,6 +581,24 @@ export const TOOLS = [
     },
   },
   {
+    // POST FLAIR TEMPLATES (GET /api/reddit/sub/:name/flairs). Reddit lists these
+    // only to a signed-in account, so the API reads them as the session stored for
+    // this key (or as session headers, which this tool deliberately does not take:
+    // a cookie argument would hide the tool on a host built without inline
+    // credentials). With no session the API answers an unbilled 503
+    // SESSION_REQUIRED before Reddit is asked; hintFor in src/server.js turns that
+    // into a sentence the caller can act on.
+    name: "reddit_subreddit_flairs",
+    path: "/api/reddit/sub/{name}/flairs",
+    description:
+      "Lists a subreddit's post (link) flair templates by name: the flairs a new post in that community can carry. Returns `subreddit`, `count` and `flairs`, each with `id` (the value a post submission takes as flair_id), `text`, `editable` (true when a custom flair_text is accepted with that id), `type` (text or richtext), `background_color`, `text_color`, `css_class`, `mod_only`, `max_emojis`, `allowable_content` and `richtext`. Many subreddits remove a post that has no flair. Reddit lists flairs only to signed-in accounts, so the read runs as the Reddit session connected for this API key; with none connected it answers 503 SESSION_REQUIRED before Reddit is asked, and that answer is not charged. A moderator's session sees every template, mod-only ones included; any other account sees the templates it can post with, listed with mod_only false. A subreddit with no post flairs returns an empty list. Billed at the read rate, including a 403 or 404 from Reddit. Example: name='SaaS'.",
+    shape: {
+      name: z.string().min(1).max(21).describe(
+        "Subreddit name WITHOUT the r/ prefix (e.g. 'SaaS'), 1 to 21 letters, digits or underscores. Required (path parameter).",
+      ),
+    },
+  },
+  {
     name: "reddit_subreddit_wiki",
     path: "/api/reddit/sub/{name}/wiki/{page}",
     description:
@@ -929,6 +947,67 @@ export const TOOLS = [
       to_username: z.string().optional().describe("Recipient username. Provide this or to_user_t2."),
       to_user_t2: z.string().regex(/^t2_[a-z0-9]+$/).optional().describe("Recipient t2_ id directly, instead of to_username."),
       message: z.string().min(1).describe("Plain-text message body."),
+    },
+  },
+
+  // ── SCHEDULED POSTS AND COMMENTS (POST/GET /api/reddit/schedule, POST /api/reddit/schedule/cancel) ──
+  // An action is the body the live submit or comment route takes, stored and replayed through
+  // that same route at run_at as the account's STORED session (the one reddit_connect saves).
+  // Scheduling, listing and cancelling are free; a run that succeeds is billed at the write rate,
+  // a failed or cancelled one is not. The request carries no cookies and no proxy: the API refuses
+  // both with SESSION_FIELDS_NOT_STORED, so none appear in this schema either, and the tools stay
+  // listed on a host built without inline credentials.
+  {
+    name: "reddit_scheduled_create",
+    path: "/api/reddit/schedule",
+    method: "POST",
+    write: true,
+    description:
+      "Schedules a Reddit post or comment to be made later as the connected account, at `run_at` (60 seconds to 30 days ahead). At that time the stored request runs through the same path a live post submission or comment takes, as the Reddit session connected when it runs, so a session logged out in between makes the run fail without a charge. A public action on Reddit under the customer's name, marked as a write so a client can ask before it runs; a subreddit's rules decide whether a post stays up. Due actions are picked up every 30 seconds and run one at a time, normally within about a minute of `run_at`. A failed run is not retried: it is recorded as failed with Reddit's reason. Up to 100 actions can wait per account (409 SCHEDULE_LIMIT_REACHED past that). Scheduling is free; a run that succeeds is billed at the write rate to this API key, and a failed or cancelled one is not charged. With no connected session it answers 400 SESSION_NOT_CONNECTED. Returns 201 with `action`: `id`, `type`, `status` (scheduled), `run_at`, the stored `request`, `created_at`, `finished_at`, `result`, `error` and `billed`.",
+    shape: {
+      type: z.enum(["post", "comment"]).describe("post = a new post in a subreddit, comment = a comment on a post."),
+      run_at: z.union([z.string().min(1), z.number().int().positive()]).describe(
+        "When it runs: an ISO 8601 timestamp with a time zone (e.g. '2026-10-21T15:00:00Z' or '2026-10-21T17:00:00+02:00') or Unix seconds. 60 seconds to 30 days ahead. A timestamp without a zone is refused.",
+      ),
+      request: z.object({
+        subreddit: z.string().min(1).optional().describe("Post: subreddit name, without r/. Required for a post."),
+        kind: z.enum(["self", "link"]).optional().describe("Post: self = text post, link = URL post. Required for a post."),
+        title: z.string().min(1).max(300).optional().describe("Post: title, up to 300 characters. Required for a post."),
+        url: z.string().optional().describe("Post: target URL, for kind link."),
+        flair_id: z.string().optional().describe("Post: post flair template id, for subreddits that require flair."),
+        flair_text: z.string().optional().describe("Post: post flair text, when the flair template allows editing it."),
+        nsfw: z.boolean().optional().describe("Post: mark the post NSFW."),
+        spoiler: z.boolean().optional().describe("Post: mark the post as a spoiler."),
+        sendreplies: z.boolean().optional().describe("Post: send inbox replies to the account."),
+        post_url: z.string().min(1).optional().describe("Comment: the reddit.com post URL to comment on. Required for a comment."),
+        text: z.string().optional().describe("Post: body text, for kind self. Comment: the comment text, up to 10,000 characters, required."),
+      }).describe(
+        "The body the live route takes, without cookies or a proxy. A post takes subreddit, kind and title, plus text or url and the optional flair and flag fields; a comment takes post_url and text. A field that does not belong to the type is refused with a 400 naming it.",
+      ),
+    },
+  },
+  {
+    name: "reddit_scheduled_list",
+    path: "/api/reddit/schedule",
+    description:
+      "Lists this account's scheduled posts and comments, newest first. Returns `actions` and `count`. Each action carries `id`, `type`, `status` (scheduled, running, succeeded, failed or cancelled), `run_at`, the stored `request`, `created_at`, `finished_at`, `result` (what the post or comment returned, when the run succeeded), `error` (`code`, `message` and `http_status`, when the run failed) and `billed`: true for a run that succeeded, false for one that failed with an answer or was cancelled, null when the outcome was not confirmed (error EXECUTION_UNCONFIRMED or EXECUTION_INTERRUPTED, where the post or comment may still have been made and charged). Free.",
+    shape: {
+      status: z.enum(["scheduled", "running", "succeeded", "failed", "cancelled"]).optional().describe(
+        "Only actions in this status. Absent, every status is listed.",
+      ),
+      limit: z.number().int().min(1).max(100).optional().describe("Maximum actions returned, 1 to 100. Default 50."),
+    },
+  },
+  {
+    name: "reddit_scheduled_cancel",
+    path: "/api/reddit/schedule/cancel",
+    method: "POST",
+    write: true,
+    destructive: true,
+    description:
+      "Cancels a scheduled post or comment by its id, while it has not run yet. Returns `cancelled`, the `action` and a `message`. An action that was still scheduled comes back with cancelled true: it will not run and is not charged. An action that already ran, or is running, comes back with cancelled false and its current status, and nothing changes. 404 NOT_FOUND when the id is not a scheduled action on this account. Free.",
+    shape: {
+      id: z.string().uuid().describe("The action id, as returned when the action was scheduled or listed."),
     },
   },
   {

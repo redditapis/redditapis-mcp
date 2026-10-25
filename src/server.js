@@ -43,6 +43,7 @@ export const DEFAULT_TIMEOUT_MS = 30000;
 const NOT_FOUND_HINTS = [
   [/^\/feedback/, " (not found. No feedback report with that id on this account, and an id from another account will not resolve here. Use the id returned by reddit_feedback_send action=send.)"],
   [/^\/account/, " (not found. That account resource does not exist for this key.)"],
+  [/^\/api\/reddit\/schedule/, " (not found. No scheduled action with that id on this account; reddit_scheduled_list shows the ids this account has.)"],
 ];
 const DEFAULT_NOT_FOUND_HINT =
   " (not found. The subreddit, post id, user, or permalink may be wrong or deleted)";
@@ -140,6 +141,11 @@ export function hintFor(status, path, error) {
   // (0.11.0). Both get the "did not complete in time" hint, keyed on the error.
   if (status === 408 || (status === 503 && error === "upstream_timeout")) return " (the read did not complete in time; retry after the retry_after seconds)";
   if (status === 429) return " (slow down: wait the retry_after seconds, keep this key's reads in flight under the limit the message names, then retry)";
+  // A read Reddit serves only to a signed-in account (post flairs, moderators), asked with no
+  // Reddit session connected: the API answers 503 session_required before Reddit is asked, and
+  // does not charge it. Retrying cannot help, so it is named rather than called an upstream error.
+  // No tool is named: a host built without inline credentials does not list the connect tool.
+  if (status === 503 && error === "session_required") return " (Reddit serves this only to a signed-in account and no Reddit session is connected for this API key, so Reddit was not asked. Not charged. Connecting the Reddit account (POST /api/reddit/session) and retrying answers it.)";
   if (status >= 500) return " (upstream API error. Retry in a moment; if persistent, contact https://www.redditapis.com)";
   return "";
 }

@@ -167,8 +167,11 @@ const WRITE_TOOL_NAMES = new Set([
   // above, they post, vote and message on Reddit itself, which is why each is write: true and
   // openWorld (src/annotations.js) so a client asks the user first.
   "reddit_connect", "reddit_disconnect", "reddit_comment", "reddit_submit", "reddit_vote", "reddit_dm",
+  // Scheduled posts and comments: create stores a post or comment that is made on Reddit at
+  // run_at as the stored session; cancel discards one that has not run.
+  "reddit_scheduled_create", "reddit_scheduled_cancel",
 ]);
-const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect", "reddit_connect"]);
+const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect", "reddit_connect", "reddit_scheduled_cancel"]);
 
 // READS THAT USE POST. The verb is not the question, the EFFECT is: these send
 // their input in a body because it does not fit in a URL (100 comment ids), and

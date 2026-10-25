@@ -56,6 +56,7 @@ export const TOOL_ANNOTATIONS = {
   reddit_subreddit_about: { title: "Get Subreddit Info", ...READ_REDDIT },
   reddit_subreddit_rules: { title: "Get Subreddit Rules", ...READ_REDDIT },
   reddit_subreddit_moderators: { title: "List Subreddit Moderators", ...READ_REDDIT },
+  reddit_subreddit_flairs: { title: "List Subreddit Post Flairs", ...READ_REDDIT },
   reddit_subreddit_wiki: { title: "Subreddit Wiki Page", ...READ_REDDIT },
   reddit_by_id: { title: "Get Posts by ID", ...READ_REDDIT },
   reddit_subreddits_popular: { title: "List Popular Subreddits", ...READ_REDDIT },
@@ -94,6 +95,14 @@ export const TOOL_ANNOTATIONS = {
   reddit_submit: { title: "Submit Post", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_vote: { title: "Vote", readOnly: false, destructive: false, idempotent: true, openWorld: true },
   reddit_dm: { title: "Send Direct Message", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+
+  // Scheduled posts and comments. create is openWorld: the call itself only stores the action,
+  // but its effect is a post or comment on Reddit at run_at, so a client weighs it like submit.
+  // cancel discards a pending action (destructive), repeating it changes nothing (idempotent),
+  // and it reaches only this service. list reads this account's own state.
+  reddit_scheduled_create: { title: "Schedule Reddit Action", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+  reddit_scheduled_list: { title: "List Scheduled Actions", ...READ_OWN },
+  reddit_scheduled_cancel: { title: "Cancel Scheduled Action", readOnly: false, destructive: true, idempotent: true, openWorld: false },
 };
 
 /**
