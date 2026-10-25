@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.15.0 (2026-10-25)
+
+### Post flairs, and posts and comments scheduled for later
+
+Four new tools.
+
+- `reddit_subreddit_flairs` (`GET /api/reddit/sub/{name}/flairs`): a subreddit's post flair templates, each with the `id` a post takes as `flair_id`, its `text`, whether it is `editable`, its colours and whether it is `mod_only`. Reddit lists flairs only to signed-in accounts, so it reads as the connected Reddit session; with none it answers 503 `SESSION_REQUIRED` and is not charged. Billed at the read rate otherwise.
+- `reddit_scheduled_create` (`POST /api/reddit/schedule`): schedule a post or a comment, 60 seconds to 30 days ahead. It runs as the connected session at `run_at`. Free to schedule; billed at the write rate only when the run succeeds.
+- `reddit_scheduled_list` (`GET /api/reddit/schedule`): the account's scheduled actions with status, result or error, and whether each was billed. Free.
+- `reddit_scheduled_cancel` (`POST /api/reddit/schedule/cancel`): cancel an action that has not run. Free. Marked destructive.
+
+None of the four takes a cookie or a proxy, so a host built with `inlineCredentials: false` lists all of them. A 503 `session_required` now reads as "no Reddit session is connected, not charged" instead of an upstream error, and a 404 from the schedule routes names the scheduled action instead of a subreddit or post.
+
 ## 0.14.1 (2026-10-25)
 
 - `reddit_monitor_health`: the description now explains the per-feed health fields: `consecutive_errors`, `last_poll_error.detail` (why a feed's checks are failing: `HTTP_403`, `HTTP_429` or `network_error`), and `retry_within_s` (the longest a failing feed waits for its next check). No code change.

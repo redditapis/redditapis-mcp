@@ -104,7 +104,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-55 tools and 3 playbook resources: 31 Reddit reads, 7 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+59 tools and 3 playbook resources: 32 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -137,6 +137,7 @@ A few conventions across the catalog:
 | `reddit_subreddit_about` | `GET /api/reddit/sub/{name}/about` | A subreddit's public metadata: title, description, subscriber and active-user counts, type, NSFW flag. |
 | `reddit_subreddit_rules` | `GET /api/reddit/sub/{name}/rules` | A subreddit's posting rules plus Reddit's site-wide rules. |
 | `reddit_subreddit_moderators` | `GET /api/reddit/sub/{name}/moderators` | A subreddit's moderator team, each with permissions, flair, and when they joined. |
+| `reddit_subreddit_flairs` | `GET /api/reddit/sub/{name}/flairs` | A subreddit's post flair templates (`id`, `text`, `editable`, colours, `mod_only`), so a post can carry the `flair_id` the community requires. Reddit lists flairs only to signed-in accounts, so it reads as your connected Reddit session; with none connected it answers 503 `SESSION_REQUIRED` and is not charged. |
 | `reddit_subreddit_wiki` | `GET /api/reddit/sub/{name}/wiki/{page}` | A subreddit's wiki page by name and `page` (markdown + HTML, revision metadata). |
 
 ### Posts and comments
@@ -218,7 +219,7 @@ The bodies are documentation and name the calls they are recipes for, which is t
 { "method": "resources/read", "params": { "uri": "playbook://subreddit-audit" } }
 ```
 
-### Your Reddit account: connect once, then comment, post, vote and DM
+### Your Reddit account: connect once, then comment, post, vote, DM and schedule
 
 `reddit_connect` stores your Reddit session on our side, encrypted (AES-256-GCM, the key held only by the API), against this API key's account, after checking it with Reddit. Every write after that sends no cookies, so they never sit in your agent's tool calls or transcript. Each write acts publicly as you, so it is marked as a write and your client asks before it runs. Connecting, status and disconnecting are free.
 
@@ -231,6 +232,9 @@ The bodies are documentation and name the calls they are recipes for, which is t
 | `reddit_submit` | `POST /api/reddit/submit` | Submit a text or link post to a subreddit as you. |
 | `reddit_vote` | `POST /api/reddit/vote` | Upvote, downvote or clear a vote on a post or comment as you. |
 | `reddit_dm` | `POST /api/reddit/dm` | Send a private chat message as you. |
+| `reddit_scheduled_create` | `POST /api/reddit/schedule` | Schedule a post or a comment for later (`run_at` 60 seconds to 30 days ahead). It runs as your connected session at that time. Free to schedule; billed at the write rate only when the run succeeds. |
+| `reddit_scheduled_list` | `GET /api/reddit/schedule` | Your scheduled posts and comments, newest first, with each one's `status`, `result` or `error`, and whether it was `billed`. Free. |
+| `reddit_scheduled_cancel` | `POST /api/reddit/schedule/cancel` | Cancel a scheduled post or comment that has not run yet. A cancelled action never runs and is not charged. Free. |
 
 ### Feedback: tell the team what broke, after you review the draft
 
