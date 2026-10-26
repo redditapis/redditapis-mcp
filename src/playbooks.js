@@ -1,4 +1,6 @@
-// src/playbooks.js, three reusable recipes served as MCP RESOURCES.
+// src/playbooks.js, three reusable recipes served as MCP RESOURCES, and each
+// also as an MCP PROMPT of the same name (registerPlaybooks, below), so a host
+// that lists prompts can start one; the prompt embeds the same resource.
 //
 // WHY RESOURCES AND NOT TOOLS. The MCP specification says resources are
 // "application-driven, with host applications determining how to incorporate
@@ -149,6 +151,24 @@ export function registerPlaybooks(server) {
       { title: p.title, description: p.description, mimeType: "text/markdown" },
       async (uri) => ({
         contents: [{ uri: uri.href, mimeType: "text/markdown", text: p.body }],
+      }),
+    );
+    // One prompt per playbook (capability parity with the sibling API product,
+    // row #45, 2026-10-26): a server with tools and resources but no prompts
+    // gives a client nothing to offer as a slash command. The prompt hands the
+    // playbook over as an embedded resource, so what the user runs is
+    // byte-for-byte what resources/read serves, never a copy that can drift.
+    // None of these playbooks takes an argument, so prompts/get with no
+    // `arguments` field is the normal call (the field is optional in the spec).
+    server.registerPrompt(
+      p.name,
+      { title: p.title, description: p.description },
+      async () => ({
+        description: p.description,
+        messages: [
+          { role: "user", content: { type: "resource", resource: { uri: playbookUri(p.slug), mimeType: "text/markdown", text: p.body } } },
+          { role: "user", content: { type: "text", text: "Run this playbook." } },
+        ],
       }),
     );
   }

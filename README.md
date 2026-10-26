@@ -104,7 +104,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-59 tools and 3 playbook resources: 32 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+59 tools, and 3 playbooks served both as resources and as prompts: 32 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -200,9 +200,11 @@ Every character of your description has to be claimed by exactly one thing: a su
 
 This matters because a wrong watch is **invisible**: you get a monitor id, a green test delivery, and then either silence forever or a firehose. A refusal that names the words it could not place is recoverable in seconds; a monitor whose keyword is also its exclusion is not noticed for a week. If a description is refused, quote the exact phrase to watch for, write subreddits as `r/Name`, or build the filter directly with `reddit_monitor_add`.
 
-### Playbooks: three recipes, served as MCP resources
+### Playbooks: three recipes, served as MCP resources and prompts
 
 Three reusable recipes ship as MCP **resources** rather than tools, because the protocol makes resources application-driven: a host shows them in a picker or a search box and reads one only when it is asked for by URI. Nothing is prefetched and nothing is injected.
+
+Each recipe is also an MCP **prompt** of the same name (`competitor_mention_watch`, `subreddit_audit`, `pain_point_mining`), so a host that lists prompts (a slash-command menu, for example) can start one directly: the prompt carries the recipe as an embedded resource followed by "Run this playbook." The person picks it; nothing runs on its own.
 
 | URI | What it covers |
 |---|---|
@@ -217,6 +219,8 @@ The bodies are documentation and name the calls they are recipes for, which is t
 ```jsonc
 // resources/list, then
 { "method": "resources/read", "params": { "uri": "playbook://subreddit-audit" } }
+// or prompts/list, then
+{ "method": "prompts/get", "params": { "name": "subreddit_audit" } }
 ```
 
 ### Your Reddit account: connect once, then comment, post, vote, DM and schedule
