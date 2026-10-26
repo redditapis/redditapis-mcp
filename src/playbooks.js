@@ -1,4 +1,6 @@
-// src/playbooks.js, three reusable recipes served as MCP RESOURCES.
+// src/playbooks.js, three reusable recipes served as MCP RESOURCES, and each
+// also as an MCP PROMPT of the same name (registerPlaybooks, below), so a host
+// that lists prompts can start one; the prompt embeds the same resource.
 //
 // WHY RESOURCES AND NOT TOOLS. The MCP specification says resources are
 // "application-driven, with host applications determining how to incorporate
