@@ -104,7 +104,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-59 tools and 3 playbook resources: 32 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+60 tools and 3 playbook resources: 33 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -123,6 +123,7 @@ A few conventions across the catalog:
 | `reddit_search_media` | `GET /api/reddit/search/media` | Search posts filtered to media, narrowed by `kind` (`image`, `video`, `gif`, `all`). |
 | `reddit_search_communities` | `GET /api/reddit/search/communities` | Find subreddits by name or topic (title, subscribers, description, NSFW flag). |
 | `reddit_search_users` | `GET /api/reddit/search/users` | Find redditors by name or keyword (username, karma, account age). |
+| `reddit_ads_search` | `GET /api/reddit/ads/search` | Search the Reddit ads library: promoted posts with advertiser, title, landing page, call to action, media, every subreddit each ad appeared in, first and last seen dates and sightings. Filter by `q`, `advertiser`, `domain`, `subreddit`, `campaign_id`, `since` and `until`. Reddit's own house ads are excluded. Newest first; page with `cursor` (the previous response's `after`). Returns `ads`, `count`, `after` and `has_more`. Billed at the read rate, the same as `reddit_search`. |
 
 ### Subreddits
 
