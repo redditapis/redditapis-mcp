@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.0 (2026-11-04)
+
+### Reddit ads library search
+
+One new tool.
+
+- `reddit_ads_search` (`GET /api/reddit/ads/search`): search the promoted posts advertisers run on Reddit. Each ad carries its advertiser, title, landing page, call to action, media, every subreddit it appeared in, first and last seen dates and sightings. Reddit's own house ads are excluded. Optional filters: `q` (title or advertiser text, up to 200 characters), `advertiser` (a `u/` prefix is stripped), `domain` (landing page hostname), `subreddit` (an `r/` prefix is stripped), `campaign_id`, `since` (ads last seen on or after it) and `until` (ads first seen on or before it), with `limit` 1 to 100 (default 25). Newest first; pass the previous response's `after` as `cursor` for the next page. Returns `{ ads, count, after, has_more }`. Billed at the read rate, the same as `reddit_search`.
+
+60 tools, 33 of them Reddit reads.
+
 ## 0.15.0 (2026-10-25)
 
 ### Post flairs, and posts and comments scheduled for later

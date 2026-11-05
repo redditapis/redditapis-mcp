@@ -42,6 +42,7 @@ export const TOOL_ANNOTATIONS = {
   reddit_deep_comment_search: { title: "Deep Comment Search", ...READ_REDDIT },
   reddit_search_media: { title: "Search Media Posts", ...READ_REDDIT },
   reddit_search_users: { title: "Search Users", ...READ_REDDIT },
+  reddit_ads_search: { title: "Search Reddit Ads", ...READ_REDDIT },
   reddit_subreddit_top: { title: "Top Subreddit Posts", ...READ_REDDIT },
   reddit_post: { title: "Get Post", ...READ_REDDIT },
   reddit_user_profile: { title: "Get User Profile", ...READ_REDDIT },

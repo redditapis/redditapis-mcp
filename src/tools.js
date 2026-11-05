@@ -395,6 +395,28 @@ export const TOOLS = [
     shape: { ...QUERY, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
+    // The ads library: an index of promoted posts, read at the read rate like
+    // reddit_search. Paged with `cursor` (the previous page's `after`), not
+    // `after`, because that is the query param the endpoint takes.
+    name: "reddit_ads_search",
+    path: "/api/reddit/ads/search",
+    description:
+      "Search the Reddit ads library: promoted posts advertisers run on Reddit, with advertiser, title, landing page, call to action, media, every subreddit each ad appeared in, first and last seen dates and sightings. Reddit's own house ads are excluded. Newest first; page with cursor. Billed at the read rate, the same as a post search.",
+    shape: {
+      q: z.string().max(200).optional().describe("Text to find in the ad title or the advertiser name, up to 200 characters."),
+      advertiser: z.string().optional().describe("Advertiser username. A u/ prefix is stripped."),
+      domain: z.string().optional().describe("Landing page hostname, e.g. shop.example.com."),
+      subreddit: z.string().optional().describe("Subreddit the ad was seen in. An r/ prefix is stripped."),
+      campaign_id: z.string().optional().describe("Reddit campaign id, as returned in an ad's `campaign_id`."),
+      since: z.string().optional().describe("ISO 8601 date: only ads last seen on or after it."),
+      until: z.string().optional().describe("ISO 8601 date: only ads first seen on or before it."),
+      limit: z.number().int().min(1).max(100).optional().describe("Number of ads to return, 1 to 100 (default 25)."),
+      cursor: z.string().optional().describe(
+        "Pagination cursor: the previous response's `after` value, passed back exactly. A null `after` (has_more false) means there is no next page. Absent on the opening page.",
+      ),
+    },
+  },
+  {
     name: "reddit_subreddit_top",
     path: "/api/reddit/sub/{name}/top",
     description:
