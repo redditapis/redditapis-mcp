@@ -83,6 +83,14 @@ const TIME_SEARCH = {
     "Time window that bounds which posts the search returns, e.g. 'week' = only posts from the past week. Unlike a subreddit listing, search applies this to the 'relevance' and 'top' sorts too. When omitted, Reddit defaults to 'all', so a broad 'relevance' query surfaces old high-upvote posts that only loosely match; 'week' or 'month' keeps results recent and on topic.",
   ),
 };
+// Up to the first 10 items get the fields a list page does not carry, from one
+// extra read per item. Default false; the API owns the cap.
+const includeDetails = (fields) => ({
+  include_details: z.boolean().optional().describe(
+    `true fills ${fields} on up to the first 10 items, from one extra read per item, so the page answers slower. false or omitted (default) returns the list page as served, where those fields may be null and \`meta.unavailable_fields\` names them.`,
+  ),
+});
+
 const NSFW = {
   nsfw: z.enum(["true", "false"]).optional().describe(
     "'true' includes over-18 / NSFW results; 'false' or omitted excludes them (default).",
@@ -222,7 +230,7 @@ export const TOOLS = [
     name: "reddit_subreddit_posts",
     path: "/api/reddit/posts",
     description:
-      "Lists posts from a subreddit by sort order: newest, hot, top of a time window, rising, controversial or best. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. When `after` comes back null the response carries `listing_status`: `complete` means no older posts and is only claimed when the whole run came back in under one page, `truncated` means Reddit's cap cut the listing off, and `unknown` means completeness could not be established. A busy feed that Reddit stops serving reports `unknown`, not `complete`. Example: subreddit='programming' sort='top' t='week'.",
+      "Lists posts from a subreddit by sort order: newest, hot, top of a time window, rising, controversial or best. Returns post title, author, score, comment count, and permalink, plus an `after` cursor for paging. When `after` comes back null the response carries `listing_status`: `complete` means no older posts and is only claimed when the whole run came back in under one page, `truncated` means Reddit's cap cut the listing off, and `unknown` means completeness could not be established. A busy feed that Reddit stops serving reports `unknown`, not `complete`. A signed-out `rising` read is served as hot: the response then carries `sort_requested: 'rising'` and `sort_served: 'hot'`. Example: subreddit='programming' sort='top' t='week'.",
     shape: {
       subreddit: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'programming', 'AskReddit'). Required.",
@@ -303,7 +311,7 @@ export const TOOLS = [
     name: "reddit_post_comments",
     path: "/api/reddit/comments",
     description:
-      "Fetches a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result. Size a big thread with the three knobs: `limit` caps top-level comments (1-500, default 100), `depth` caps reply depth (1-10; `depth=1` is top-level only; absent is the full tree) and `sort` orders them (confidence = Reddit's best, top, new, controversial, old, qa). `limit=20, depth=1, sort='top'` reads the twenty best top-level comments and nothing below them, which keeps a 2,700-comment thread readable. `meta` echoes limit_used, depth_used and sort_used.",
+      "Fetches a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result. Size a big thread with the three knobs: `limit` caps top-level comments (1-500, default 100), `depth` caps reply depth (1-10; `depth=1` is top-level only; absent is the full tree) and `sort` orders them (confidence = Reddit's best, top, new, controversial, old, qa). `limit=20, depth=1, sort='top'` reads the twenty best top-level comments and nothing below them, which keeps a 2,700-comment thread readable. `meta` echoes limit_used, depth_used and sort_used; with no `sort` sent, sort_used names the sort Reddit applied and sort_defaulted is true. `format='normalized'` returns flat comments instead of Reddit's raw tree.",
     shape: {
       permalink: z.string().min(1).describe(
         "The post permalink path from a prior post result, e.g. '/r/programming/comments/abc123/some_title/'. Required.",
@@ -316,6 +324,9 @@ export const TOOLS = [
       ),
       sort: z.enum(["confidence", "top", "new", "controversial", "old", "qa"]).optional().describe(
         "Comment ordering: confidence (Reddit's best), top, new, controversial, old or qa. Absent, Reddit's default for the thread.",
+      ),
+      format: z.enum(["raw", "normalized"]).optional().describe(
+        "raw (default, unchanged): Reddit's {kind, data} tree. normalized: flat comments with id, author, body, subreddit, upvotes, score_hidden, permalink, url, post_id, parent_id, is_submitter, created, depth and replies (nested in the same shape); load-more stubs are dropped and `meta.format` is 'normalized'.",
       ),
     },
   },
@@ -391,8 +402,8 @@ export const TOOLS = [
     name: "reddit_search_users",
     path: "/api/reddit/search/users",
     description:
-      "Searches for Reddit users (redditors) by name or keyword. Returns matching accounts with username, karma, and account age. Example: q='spez'.",
-    shape: { ...QUERY, ...AFTER, ...NSFW, ...LIMIT },
+      "Searches for Reddit users (redditors) by name or keyword. Returns matching accounts with username, karma, and account age. The search page may not carry link_karma, comment_karma or created; `meta.unavailable_fields` then names them, and `include_details=true` fills them on up to the first 10 users. Example: q='spez'.",
+    shape: { ...QUERY, ...AFTER, ...NSFW, ...LIMIT, ...includeDetails("link_karma, comment_karma and created") },
   },
   {
     // The ads library: an index of promoted posts, read at the read rate like
@@ -649,22 +660,22 @@ export const TOOLS = [
     name: "reddit_subreddits_popular",
     path: "/api/reddit/subreddits/popular",
     description:
-      "Browses the most-subscribed, trending subreddits right now, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging.",
-    shape: { ...AFTER, ...LIMIT },
+      "Browses the most-subscribed, trending subreddits right now, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
+    shape: { ...AFTER, ...LIMIT, ...includeDetails("created") },
   },
   {
     name: "reddit_subreddits_new",
     path: "/api/reddit/subreddits/new",
     description:
-      "Browses the newest subreddits, the communities most recently created, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging.",
-    shape: { ...AFTER, ...LIMIT },
+      "Browses the newest subreddits, the communities most recently created, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
+    shape: { ...AFTER, ...LIMIT, ...includeDetails("created") },
   },
   {
     name: "reddit_subreddits_default",
     path: "/api/reddit/subreddits/default",
     description:
-      "Browses Reddit's default front-page set of subreddits, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging.",
-    shape: { ...AFTER, ...LIMIT },
+      "Browses Reddit's default front-page set of subreddits, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
+    shape: { ...AFTER, ...LIMIT, ...includeDetails("created") },
   },
 
   // ── monitoring: manage the caller's own account, never posts/votes/DMs Reddit itself ──
@@ -738,7 +749,7 @@ export const TOOLS = [
     name: "reddit_monitor_deliveries",
     path: "/api/reddit/monitor/deliveries",
     description:
-      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). It records what was sent, not only how many (the counts are in monitor health). Every delivered item also carries `payload.items[].enrichment`: a `relevance.score` (0-1, how much of THIS monitor's own keyword criteria the item matched; not a model's confidence), a `sentiment` (`polarity` -1 to 1 plus a positive/negative/mixed/neutral `label`), and an `intent.tag` (question, recommendation_request, complaint, promotion, praise, or discussion). All three are deterministic keyword, lexicon and rule heuristics computed at no extra cost; each carries its own `method` field and none of them is a machine-learning or LLM call. Without `id`, the history aggregates across every monitor on the account.",
+      "Delivery history: the actual Reddit posts a monitor's webhook has received (or attempted), newest first, including the real post content (title, subreddit, permalink, author). Each row also carries `attempts` (every send, including the one that succeeded) and `retries` (attempts - 1). It records what was sent, not only how many (the counts are in monitor health). Every delivered item also carries `payload.items[].enrichment`: a `relevance.score` (0-1, how much of THIS monitor's own keyword criteria the item matched; not a model's confidence), a `sentiment` (`polarity` -1 to 1 plus a positive/negative/mixed/neutral `label`), and an `intent.tag` (question, recommendation_request, complaint, promotion, praise, or discussion). All three are deterministic keyword, lexicon and rule heuristics computed at no extra cost; each carries its own `method` field and none of them is a machine-learning or LLM call. Without `id`, the history aggregates across every monitor on the account.",
     shape: {
       id: z.string().optional().describe("Narrows to one monitor's history. Absent, the history aggregates across every monitor on the account."),
       status: z.enum(["pending", "delivered", "failed", "dead", "suppressed"]).optional().describe(
@@ -765,7 +776,7 @@ export const TOOLS = [
   {
     name: "reddit_monitor_webhook_list",
     path: "/api/reddit/monitor/webhook/list",
-    description: "Lists every webhook registered on the caller's account. The signing secret is not included; it is shown once, at creation.",
+    description: "Lists every webhook registered on the caller's account. The signing secret is not included; it is shown once, at creation. A Slack or Discord URL is itself a secret, so it comes back masked with `url_masked: true`.",
     shape: {},
   },
   {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.0 (2026-11-06)
+
+### Normalized comment trees, and list details on request
+
+No new tools; five tools gain an optional parameter, and a minor release because the tool surface grows.
+
+- `reddit_post_comments`: optional `format`, `raw` or `normalized`. Absent is `raw`, unchanged (Reddit's `{kind, data}` tree). `normalized` returns flat comments with `id`, `author`, `body`, `subreddit`, `upvotes`, `score_hidden`, `permalink`, `url`, `post_id`, `parent_id`, `is_submitter`, `created`, `depth` and `replies` (nested in the same shape), load-more stubs dropped, and `meta.format: "normalized"`. The description now says that with no `sort` sent, `meta.sort_used` names the sort Reddit applied and `meta.sort_defaulted` is `true`.
+- `reddit_search_users`: optional boolean `include_details`. `true` fills `link_karma`, `comment_karma` and `created` on up to the first 10 users, from one extra read per user. Default `false`.
+- `reddit_subreddits_popular`, `reddit_subreddits_new`, `reddit_subreddits_default`: optional boolean `include_details`. `true` fills `created` on up to the first 10 subreddits. Default `false`.
+- Descriptions name the fields the API now returns so a caller can tell a gap from a value: `meta.unavailable_fields` on the user search and subreddit lists, `sort_requested` and `sort_served` on `reddit_subreddit_posts` when a signed-out `rising` read is served as hot, `url_masked` on `reddit_monitor_webhook_list`, and `attempts` and `retries` on `reddit_monitor_deliveries`.
+
+Needs the API release that accepts `format` on `GET /api/reddit/comments` and `include_details` on the user search and subreddit list routes. test/format-details.test.mjs checks each parameter reaches the query string, and is left out when absent.
+
 ## 0.16.0 (2026-11-04)
 
 ### Reddit ads library search
