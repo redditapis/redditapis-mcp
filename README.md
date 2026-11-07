@@ -122,14 +122,14 @@ A few conventions across the catalog:
 | `reddit_deep_comment_search` | `GET /api/reddit/search/comments/deep` | Genuine comment search: returns the actual matching comment bodies (score, author, comment-deep permalink, parent post). `limit` sets how many parent posts to expand; `group_by="author"` switches to research mode (the distinct people talking about your query). Premium call. |
 | `reddit_search_media` | `GET /api/reddit/search/media` | Search posts filtered to media, narrowed by `kind` (`image`, `video`, `gif`, `all`). |
 | `reddit_search_communities` | `GET /api/reddit/search/communities` | Find subreddits by name or topic (title, subscribers, description, NSFW flag). |
-| `reddit_search_users` | `GET /api/reddit/search/users` | Find redditors by name or keyword (username, karma, account age). |
+| `reddit_search_users` | `GET /api/reddit/search/users` | Find redditors by name or keyword (username, karma, account age). `include_details: true` fills `link_karma`, `comment_karma` and `created` on up to the first 10 users. |
 | `reddit_ads_search` | `GET /api/reddit/ads/search` | Search the Reddit ads library: promoted posts with advertiser, title, landing page, call to action, media, every subreddit each ad appeared in, first and last seen dates and sightings. Filter by `q`, `advertiser`, `domain`, `subreddit`, `campaign_id`, `since` and `until`. Reddit's own house ads are excluded. Newest first; page with `cursor` (the previous response's `after`). Returns `ads`, `count`, `after` and `has_more`. Billed at the read rate, the same as `reddit_search`. |
 
 ### Subreddits
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| `reddit_subreddit_posts` | `GET /api/reddit/posts` | List a subreddit's posts by `sort` (`new`, `hot`, `top`, `rising`, `controversial`, `best`). |
+| `reddit_subreddit_posts` | `GET /api/reddit/posts` | List a subreddit's posts by `sort` (`new`, `hot`, `top`, `rising`, `controversial`, `best`). A signed-out `rising` read is served as hot and says so in `sort_served`. |
 | `reddit_feedback_list` | `GET /feedback` | List the reports this account has sent, newest first, with their status. The way back to a report whose id was not kept. Free. |
 | `reddit_verify_comments` | `POST /api/reddit/comments/verify` | Check whether up to 100 specific comments still exist and are publicly visible. A read despite the POST; tells 'deleted by author' from 'removed by a mod' from 'still there'. |
 | `reddit_home_feed` | `GET /api/reddit/feed` | Read YOUR OWN Reddit home feed. Needs your `reddit_session` and `loid` from `POST /api/reddit/login` (a REST call, not an MCP tool); they travel as headers, never in the URL. |
@@ -147,7 +147,7 @@ A few conventions across the catalog:
 |---|---|---|
 | `reddit_post_visibility` | `GET /api/reddit/post/{id}/visibility` | Is a post still publicly visible, or did it quietly stop being so? Fetches the post and one page of its author's listing and compares. Returns `live`, `not_visible` or `undecidable` with a reason, and never claims to know WHY. Two upstream calls, $0.004. |
 | `reddit_post` | `GET /api/reddit/post/{id}` | A single post by its base-36 `id` (no `t3_` prefix): title, author, score, text, permalink, subreddit, url. |
-| `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`. |
+| `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`. `format: "normalized"` returns flat comments instead of Reddit's raw tree. |
 | `reddit_post_duplicates` | `GET /api/reddit/post/{id}/duplicates` | Every other post that shares this post's link, across subreddits (Reddit's "other discussions"). |
 | `reddit_by_id` | `GET /api/reddit/by_id/{fullnames}` | Bulk-hydrate up to 100 posts in one call from a comma-separated list of `t3_` fullnames. |
 
@@ -164,9 +164,9 @@ A few conventions across the catalog:
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| `reddit_subreddits_popular` | `GET /api/reddit/subreddits/popular` | Browse the most-subscribed, trending subreddits right now. |
-| `reddit_subreddits_new` | `GET /api/reddit/subreddits/new` | Browse the newest subreddits, most recently created first. |
-| `reddit_subreddits_default` | `GET /api/reddit/subreddits/default` | Browse Reddit's default front-page set of subreddits. |
+| `reddit_subreddits_popular` | `GET /api/reddit/subreddits/popular` | Browse the most-subscribed, trending subreddits right now. `include_details: true` fills `created` on up to the first 10. |
+| `reddit_subreddits_new` | `GET /api/reddit/subreddits/new` | Browse the newest subreddits, most recently created first. `include_details: true` fills `created` on up to the first 10. |
+| `reddit_subreddits_default` | `GET /api/reddit/subreddits/default` | Browse Reddit's default front-page set of subreddits. `include_details: true` fills `created` on up to the first 10. |
 
 ### Monitoring: manage your own monitors and webhooks
 
@@ -182,9 +182,9 @@ Monitors watch **named subreddits or all of Reddit**, for **posts or comments** 
 | `reddit_monitor_update` | `POST /api/reddit/monitor/update` | Pause/resume (`active`), re-cadence, or replace a monitor's filter. Passing any filter field REPLACES the whole filter -- resupply everything you want kept. |
 | `reddit_monitor_remove` | `POST /api/reddit/monitor/remove` | Permanently delete a monitor. Cannot be undone. |
 | `reddit_monitor_health` | `GET /api/reddit/monitor/health` | Per-monitor delivered/failed/suppressed counts (last 24h), `suppressed_breakdown` splitting those suppressions into `ceiling` and `stale` reasons, and whether the delivery ceiling specifically has been hit. |
-| `reddit_monitor_deliveries` | `GET /api/reddit/monitor/deliveries` | The actual posts delivered (or attempted), newest first, with real content -- not just counts. Omit `id` to aggregate across every monitor you own. |
+| `reddit_monitor_deliveries` | `GET /api/reddit/monitor/deliveries` | The actual posts delivered (or attempted), newest first, with real content -- not just counts. Omit `id` to aggregate across every monitor you own. Each row carries `attempts` and `retries`. |
 | `reddit_monitor_webhook_create` | `POST /api/reddit/monitor/webhook/create` | Register a delivery target (`webhook`/`slack`/`discord`). Returns a signing secret shown ONCE. |
-| `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret. |
+| `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret; a Slack or Discord URL comes back masked (`url_masked: true`). |
 | `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
 | `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
 
