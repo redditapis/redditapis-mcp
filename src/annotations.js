@@ -81,6 +81,7 @@ export const TOOL_ANNOTATIONS = {
   reddit_monitor_remove: { title: "Delete Monitor", readOnly: false, destructive: true, idempotent: true, openWorld: false },
   reddit_monitor_webhook_create: { title: "Create Webhook", readOnly: false, destructive: false, idempotent: false, openWorld: false },
   reddit_monitor_webhook_test: { title: "Send Webhook Test", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+  reddit_monitor_webhook_redrive: { title: "Redrive Dead Webhook Deliveries", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_monitor_webhook_delete: { title: "Delete Webhook", readOnly: false, destructive: true, idempotent: true, openWorld: false },
   reddit_feedback_send: { title: "Send Feedback Report", readOnly: false, destructive: true, idempotent: false, openWorld: false },
   reddit_set_watch: { title: "Create Watch", readOnly: false, destructive: false, idempotent: false, openWorld: true },

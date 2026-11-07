@@ -792,6 +792,20 @@ export const TOOLS = [
     shape: { ...WEBHOOK_ID },
   },
   {
+    name: "reddit_monitor_webhook_redrive",
+    path: "/api/reddit/monitor/webhook/redrive",
+    method: "POST",
+    write: true,
+    description:
+      "Re-sends a webhook's dead-lettered deliveries, once the receiving endpoint can take them (for example after a schema fix on the receiver). With `dry_run: true` it answers `selected`, `delivery_ids`, `oldest_at` and `newest_at` and changes nothing. Only endpoint failures are re-sent (an HTTP error other than 410, a network error, a timeout, retries exhausted); deliveries dead because the target was removed, paused or its URL was refused are counted in `skipped_permanent` and left alone. Oldest first, within `since_hours` (default 24, up to 720) and `limit` (default 100, up to 1000); a further call takes the rest. Post fields that were null when matched (`text`, `is_self`, `locked`, `archived`, `upvote_ratio`) may be filled from Reddit on the way out, up to 25 posts per delivery pass; any still unknown stay null. Re-sent deliveries go out within about a minute and show in the monitor's delivery list. Rate-limited to 10/min, shared with the webhook test delivery. Returns 404 `webhook_not_found` if the id is not on this account, and 409 `webhook_paused` when re-sending to a paused target (a dry run still answers). Free.",
+    shape: {
+      ...WEBHOOK_ID,
+      since_hours: z.number().int().min(1).max(720).optional().describe("How far back to look, in hours (1 to 720). Default 24."),
+      limit: z.number().int().min(1).max(1000).optional().describe("Most deliveries to re-send in this call (1 to 1000). Default 100, oldest first."),
+      dry_run: z.boolean().optional().describe("true lists what would be re-sent and changes nothing."),
+    },
+  },
+  {
     name: "reddit_monitor_webhook_delete",
     path: "/api/reddit/monitor/webhook/delete",
     method: "POST",

@@ -157,6 +157,7 @@ check("every path param {x} has a matching shape key", () => {
 const WRITE_TOOL_NAMES = new Set([
   "reddit_monitor_add", "reddit_monitor_update", "reddit_monitor_remove",
   "reddit_monitor_webhook_create", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete",
+  "reddit_monitor_webhook_redrive",
   "reddit_feedback_send",
   // reddit_set_watch creates a monitor and may register a webhook. Same risk
   // class as the six above: it configures the caller's OWN redditapis.com
