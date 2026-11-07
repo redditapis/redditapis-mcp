@@ -388,11 +388,11 @@ export const TOOLS = [
     name: "reddit_search_media",
     path: "/api/reddit/search/media",
     description:
-      "Searches Reddit posts filtered to media (images, video, gifs). Returns media posts with the media URL/type, author, score, and the post url. `kind` narrows the results to one media type. Example: q='aurora borealis' kind='image'.",
+      "Searches Reddit posts filtered to media (single images, video, galleries). Returns media posts with the media URL, `kind` (image, video or gallery, resolved per post), author, score, and the post url. `kind` narrows the results to one media type; most multi-photo posts are galleries, so a photo search that returns few single images is often answered by kind='gallery' or kind='all'. Example: q='aurora borealis' kind='all'.",
     shape: {
       ...QUERY,
-      kind: z.enum(["image", "video", "gif", "all"]).optional().describe(
-        "Media type filter. 'image', 'video', 'gif', or 'all' (default). Filters the raw Reddit results to that media kind.",
+      kind: z.enum(["image", "video", "gallery", "all", "gif"]).optional().describe(
+        "Media type filter. 'image' = single-image posts, 'video' = video posts, 'gallery' = multi-image gallery posts, 'all' (default) = any of the three. 'gif' is kept for older callers and returns the same as 'all'.",
       ),
       ...SORT_SEARCH,
       ...TIME_SEARCH,
