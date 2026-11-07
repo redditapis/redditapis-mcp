@@ -83,6 +83,19 @@ for (const name of ["reddit_search_users", "reddit_subreddits_popular", "reddit_
   ok("reddit_search passes include_bodies through, omits it by default, and its description names it");
 }
 
+// 2c. reddit_search_media kind offers gallery, keeps gif for older callers
+{
+  const k = byName.reddit_search_media.shape.kind;
+  for (const v of ["image", "video", "gallery", "all", "gif"]) assert.ok(k.safeParse(v).success, `kind accepts ${v}`);
+  assert.equal(k.safeParse("photo").success, false, "kind refuses an unknown value");
+  const { calls, impl } = recordingFetch({ posts: [], after: null });
+  const c = await connect(impl);
+  await c.callTool({ name: "reddit_search_media", arguments: { q: "sunset", kind: "gallery" } });
+  assert.equal(query(calls[0].url).get("kind"), "gallery", "kind=gallery reaches the query string");
+  assert.match(byName.reddit_search_media.description, /gallery/);
+  ok("reddit_search_media offers kind=gallery, sends it, and still accepts gif");
+}
+
 // 3. descriptions name the new fields a caller reads back
 assert.match(byName.reddit_post_comments.description, /sort_defaulted/);
 assert.match(byName.reddit_subreddit_posts.description, /sort_served/);

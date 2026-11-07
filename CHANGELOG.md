@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.19.0 (2026-11-07)
+
+### Gallery posts on media search
+
+No new tools; one tool's `kind` gains a value.
+
+- `reddit_search_media`: `kind` now offers `gallery` (multi-image gallery posts), the kind the API has always accepted. Most multi-photo posts on Reddit are galleries, so `kind='image'` (single-image posts only) returned nothing for many photo searches and there was no way to ask for galleries. `gif` stays accepted for older callers and is described as what it does: the same as `all`. The description names the per-post `kind` field (image, video or gallery).
+
+test/format-details.test.mjs checks `gallery` reaches the query string and `gif` is still accepted.
+
 ## 0.18.0 (2026-11-07)
 
 ### Self-post bodies on search, on request
