@@ -30,7 +30,7 @@ try {
   console.log(`PASS  connected, ${tools.length} tools listed`);
 
   // Protocol-level only (no live call, no side effect, no plan required): the
-  // 10 monitor/webhook tools registered with the correct read-only/destructive
+  // 11 monitor/webhook tools registered with the correct read-only/destructive
   // annotations, matching tools.js's own write/destructive flags.
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
   for (const n of ["reddit_monitor_add", "reddit_monitor_list", "reddit_monitor_update", "reddit_monitor_remove",
@@ -42,7 +42,7 @@ try {
   assert.equal(byName.reddit_monitor_remove.annotations?.destructiveHint, true, "monitor_remove should be destructiveHint:true");
   assert.equal(byName.reddit_monitor_list.annotations?.readOnlyHint, true, "monitor_list should be readOnlyHint:true");
   assert.equal(byName.reddit_monitor_add.annotations?.readOnlyHint, false, "monitor_add should be readOnlyHint:false");
-  console.log(`PASS  all 10 monitor/webhook tools registered with correct annotations`);
+  console.log(`PASS  all 11 monitor/webhook tools registered with correct annotations`);
 
   const res = await client.callTool({
     name: "reddit_subreddit_posts",
