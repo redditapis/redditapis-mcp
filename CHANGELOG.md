@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 (2026-11-07)
+
+### Re-send dead-lettered webhook deliveries
+
+One new tool.
+
+- `reddit_monitor_webhook_redrive` (`POST /api/reddit/monitor/webhook/redrive`): re-sends a webhook's dead-lettered deliveries once the receiver is fixed. `dry_run: true` lists what would be re-sent without changing anything. Only endpoint failures are re-sent; deliveries dead because the target was removed, paused or refused are left alone. Bounded by `since_hours` (up to 720) and `limit` (up to 1000), oldest first. Free.
+
+test/tools.test.mjs and test/smoke.mjs register it as a write tool.
+
 ## 0.19.0 (2026-11-07)
 
 ### Gallery posts on media search

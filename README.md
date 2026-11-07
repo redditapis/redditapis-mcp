@@ -104,7 +104,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-60 tools and 3 playbook resources: 33 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 10 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+61 tools and 3 playbook resources: 33 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 11 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -186,6 +186,7 @@ Monitors watch **named subreddits or all of Reddit**, for **posts or comments** 
 | `reddit_monitor_webhook_create` | `POST /api/reddit/monitor/webhook/create` | Register a delivery target (`webhook`/`slack`/`discord`). Returns a signing secret shown ONCE. |
 | `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret; a Slack or Discord URL comes back masked (`url_masked: true`). |
 | `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
+| `reddit_monitor_webhook_redrive` | `POST /api/reddit/monitor/webhook/redrive` | Re-send a webhook's dead-lettered deliveries once the endpoint is fixed (`dry_run` lists them first). Free. |
 | `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
 
 #### `reddit_set_watch` refuses rather than guesses

@@ -35,7 +35,8 @@ try {
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
   for (const n of ["reddit_monitor_add", "reddit_monitor_list", "reddit_monitor_update", "reddit_monitor_remove",
                     "reddit_monitor_health", "reddit_monitor_deliveries", "reddit_monitor_webhook_create",
-                    "reddit_monitor_webhook_list", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete"]) {
+                    "reddit_monitor_webhook_list", "reddit_monitor_webhook_test", "reddit_monitor_webhook_delete",
+                    "reddit_monitor_webhook_redrive"]) {
     assert.ok(byName[n], `expected tool ${n} to be registered`);
   }
   assert.equal(byName.reddit_monitor_remove.annotations?.destructiveHint, true, "monitor_remove should be destructiveHint:true");
