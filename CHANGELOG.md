@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.18.0 (2026-11-07)
+
+### Self-post bodies on search, on request
+
+No new tools; one tool gains an optional parameter.
+
+- `reddit_search`: optional boolean `include_bodies`. `true` reads the self-post bodies (`text`, `is_self`) the search page left null, on up to 25 posts. Default `false`: the page as served, where bodies the free listing fill reached are present and the rest stay null. The description now says so, so a caller can tell a missing body from an empty one.
+
+Needs the API release that accepts `include_bodies` on `GET /api/reddit/search` (live since 2026-11-06). test/format-details.test.mjs checks it reaches the query string, and is left out when absent.
+
 ## 0.17.0 (2026-11-06)
 
 ### Normalized comment trees, and list details on request

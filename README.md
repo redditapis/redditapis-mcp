@@ -117,7 +117,7 @@ A few conventions across the catalog:
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| `reddit_search` | `GET /api/reddit/search` | Search posts across all of Reddit or within one subreddit (`subreddit`). |
+| `reddit_search` | `GET /api/reddit/search` | Search posts across all of Reddit or within one subreddit (`subreddit`). `include_bodies=true` fills self-post bodies the search page left null, on up to 25 posts. |
 | `reddit_search_comments` | `GET /api/reddit/search/comments` | Search by comment text; returns the parent posts, since Reddit's comment search does not hand back the matching comment itself. |
 | `reddit_deep_comment_search` | `GET /api/reddit/search/comments/deep` | Genuine comment search: returns the actual matching comment bodies (score, author, comment-deep permalink, parent post). `limit` sets how many parent posts to expand; `group_by="author"` switches to research mode (the distinct people talking about your query). Premium call. |
 | `reddit_search_media` | `GET /api/reddit/search/media` | Search posts filtered to media, narrowed by `kind` (`image`, `video`, `gif`, `all`). |
