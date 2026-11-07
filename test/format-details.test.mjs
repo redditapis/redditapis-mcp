@@ -67,6 +67,22 @@ for (const name of ["reddit_search_users", "reddit_subreddits_popular", "reddit_
   ok(`${name} passes include_details through and omits it by default`);
 }
 
+// 2b. include_bodies on post search
+{
+  const s = byName.reddit_search.shape.include_bodies;
+  assert.ok(s, "reddit_search declares include_bodies");
+  assert.ok(s.safeParse(undefined).success, "include_bodies is optional");
+  assert.equal(s.safeParse("yes").success, false, "include_bodies is a boolean");
+  const { calls, impl } = recordingFetch({ posts: [], after: null });
+  const c = await connect(impl);
+  await c.callTool({ name: "reddit_search", arguments: { q: "rust", include_bodies: true } });
+  await c.callTool({ name: "reddit_search", arguments: { q: "rust" } });
+  assert.equal(query(calls[0].url).get("include_bodies"), "true", "reddit_search sends include_bodies=true");
+  assert.equal(query(calls[1].url).has("include_bodies"), false, "absent include_bodies is not sent");
+  assert.match(byName.reddit_search.description, /include_bodies/);
+  ok("reddit_search passes include_bodies through, omits it by default, and its description names it");
+}
+
 // 3. descriptions name the new fields a caller reads back
 assert.match(byName.reddit_post_comments.description, /sort_defaulted/);
 assert.match(byName.reddit_subreddit_posts.description, /sort_served/);
