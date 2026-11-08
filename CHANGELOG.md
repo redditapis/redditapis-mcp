@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.1 (2026-11-09)
+
+No new tools; one description corrected.
+
+- `reddit_monitor_webhook_redrive`: deliveries dropped while the target was paused are now re-sent once it is resumed (the server marks them `webhook_paused`); deliveries that cannot succeed on a replay (a deleted target, a refused URL, an HTTP 410, an email that could not be sent because of a bad or suppressed address or a send failure) are skipped and counted by reason in `skipped_by_reason`. Redrive has its own 10/min limit.
+
 ## 0.20.0 (2026-11-07)
 
 ### Re-send dead-lettered webhook deliveries
