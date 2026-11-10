@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.2 (2026-11-10)
+
+No new tools; one new input and description fixes.
+
+- `reddit_user_comments`: optional boolean `include_parents`. `true` fills `parent_id` on the first 10 comments when the profile page serves the listing (one extra read per comment inside the call's time budget; a failed read keeps `parent_id` null; `meta.parents_filled` reports the count). Needs the API release of 2026-11-10; before it the API ignores the parameter.
+
+- The npm and MCP Registry descriptions now name every tool family, including the Reddit account writes (comment, post, vote, DM, schedule) and feedback, and state the count (61).
+- README: the hosted server at api.redditapis.com/mcp registers 55 of the 61 tools. The 6 it leaves out are the ones that take your own Reddit cookies in a tool argument: `reddit_connect` and the five account readers (`reddit_home_feed`, `reddit_user_upvoted`, `reddit_user_saved`, `reddit_user_hidden`, `reddit_user_gilded`). Those run on the local server only; the hosted tool count is not a stale build.
+
 ## 0.20.1 (2026-11-09)
 
 No new tools; one description corrected.
