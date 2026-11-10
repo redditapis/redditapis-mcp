@@ -8,7 +8,7 @@ redditapis-mcp is the official MCP server for RedditAPIs, built for developers a
 
 Install: `npx -y redditapis-mcp@latest` with `REDDITAPIS_KEY` from https://www.redditapis.com
 
-Hosted, sign in instead of pasting a key (Claude Code): `claude mcp add --transport http reddit https://api.redditapis.com/mcp` (carries every tool except the 5 that read your own account)
+Hosted, sign in instead of pasting a key (Claude Code): `claude mcp add --transport http reddit https://api.redditapis.com/mcp` (carries every tool except the 6 that take your own Reddit cookies: reddit_connect and the five account readers)
 
 Website: https://www.redditapis.com/mcp
 

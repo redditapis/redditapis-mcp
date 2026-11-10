@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.2 (2026-11-10)
+
+No new tools; descriptions only.
+
+- The npm and MCP Registry descriptions now name every tool family, including the Reddit account writes (comment, post, vote, DM, schedule) and feedback, and state the count (61).
+- README: the hosted server at api.redditapis.com/mcp registers 55 of the 61 tools. The 6 it leaves out are the ones that take your own Reddit cookies in a tool argument: `reddit_connect` and the five account readers (`reddit_home_feed`, `reddit_user_upvoted`, `reddit_user_saved`, `reddit_user_hidden`, `reddit_user_gilded`). Those run on the local server only; the hosted tool count is not a stale build.
+
 ## 0.20.1 (2026-11-09)
 
 No new tools; one description corrected.
