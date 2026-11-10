@@ -2,7 +2,7 @@
   "name": "redditapis-mcp",
   "version": "0.20.2",
   "mcpName": "io.github.redditapis/redditapis-mcp",
-  "description": "Official MCP server for redditapis.com: 61 tools. Search Reddit posts, comments, communities, users, media and the ads library; read subreddits, comment trees and profiles; manage monitors and webhooks; comment, post, vote, send DMs and schedule posts from a connected Reddit account; send the team feedback. Works with Claude, Cursor, VS Code and any MCP client.",
+  "description": "Reddit API as 61 MCP tools for Claude, Cursor and any MCP client: search, subreddits, posts, comments, users, media, monitors with webhooks, account writes (post, comment, vote, DM) and feedback. Hosted server at api.redditapis.com/mcp.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/redditapis/redditapis-mcp.git"
