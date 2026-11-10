@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.redditapis/redditapis-mcp",
-  "description": "Reddit API as 61 MCP tools: search, subreddits, posts, comments, users, media, ads library, monitors, webhooks, Reddit account writes (comment, post, vote, DM, schedule) and feedback.",
+  "description": "Reddit API as 61 MCP tools: search, subreddits, posts, comments, users, monitors, writes, feedback.",
   "title": "RedditAPIs",
   "version": "0.20.2",
   "websiteUrl": "https://www.redditapis.com/mcp",
