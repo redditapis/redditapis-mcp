@@ -489,6 +489,9 @@ export const TOOLS = [
       ...SORT_USER,
       ...AFTER,
       ...LIMIT,
+      include_parents: z.boolean().optional().describe(
+        "true also fills `parent_id` on the first 10 comments when the page is served from the profile page (which does not carry it), one extra read per comment inside the call's own time budget, so the call answers slower; a comment whose read fails keeps parent_id null, and `meta.parents_filled` says how many were filled. false or omitted (default) returns the page as served.",
+      ),
     },
   },
   {
