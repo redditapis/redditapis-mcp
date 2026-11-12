@@ -349,7 +349,7 @@ export const TOOLS = [
     name: "reddit_search_communities",
     path: "/api/reddit/search/communities",
     description:
-      "Searches for subreddits (communities) by name or topic. Returns matching subreddits with title, subscriber count, description, and NSFW flag. Example: q='machine learning'.",
+      "Searches for subreddits (communities) by name or topic. Returns matching subreddits with title, weekly visitors and weekly contributions (Reddit no longer shows signed-out readers a subscriber count, so subscribers may be null), description, and NSFW flag. Example: q='machine learning'.",
     shape: { ...QUERY, ...AFTER, ...NSFW, ...LIMIT },
   },
   {
@@ -590,7 +590,7 @@ export const TOOLS = [
     name: "reddit_subreddit_about",
     path: "/api/reddit/sub/{name}/about",
     description:
-      "Fetches a subreddit's public metadata by name (Reddit's /r/<name>/about data). Returns the subreddit's title, public description, subscriber count, active-user count, creation timestamp, type, and NSFW flag. Example: name='python'.",
+      "Fetches a subreddit's public metadata by name (Reddit's /r/<name>/about data). Returns the subreddit's title, public description, weekly visitors, weekly contributions, subscriber count (null when Reddit does not show it), creation timestamp, type, and NSFW flag. Example: name='python'.",
     shape: {
       name: z.string().min(1).describe(
         "Subreddit name WITHOUT the r/ prefix (e.g. 'python'). Required (path parameter).",
@@ -666,21 +666,21 @@ export const TOOLS = [
     name: "reddit_subreddits_popular",
     path: "/api/reddit/subreddits/popular",
     description:
-      "Browses the most-subscribed, trending subreddits right now, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
+      "Browses the most-subscribed, trending subreddits right now, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag; weekly_visitors and weekly_contributions are null on these lists (the single-subreddit read carries them)) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
     shape: { ...AFTER, ...LIMIT, ...includeDetails("created") },
   },
   {
     name: "reddit_subreddits_new",
     path: "/api/reddit/subreddits/new",
     description:
-      "Browses the newest subreddits, the communities most recently created, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
+      "Browses the newest subreddits, the communities most recently created, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag; weekly_visitors and weekly_contributions are null on these lists (the single-subreddit read carries them)) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
     shape: { ...AFTER, ...LIMIT, ...includeDetails("created") },
   },
   {
     name: "reddit_subreddits_default",
     path: "/api/reddit/subreddits/default",
     description:
-      "Browses Reddit's default front-page set of subreddits, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
+      "Browses Reddit's default front-page set of subreddits, with no keyword. Returns a `subreddits` list (each with name, title, subscriber count, description, type, and NSFW flag; weekly_visitors and weekly_contributions are null on these lists (the single-subreddit read carries them)) plus an `after` cursor for paging. `include_details=true` fills `created` on up to the first 10 subreddits; otherwise `meta.unavailable_fields` names any field the page left null.",
     shape: { ...AFTER, ...LIMIT, ...includeDetails("created") },
   },
 
