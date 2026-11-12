@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.3 (2026-11-12)
+
+No new tools; description updates.
+
+- `reddit_subreddit_about` and `reddit_search_communities` describe the new `weekly_visitors` and `weekly_contributions` fields (the counters Reddit shows in place of the member count). `subscribers` may be null where Reddit does not show it. Needs the API release of 2026-11-12.
+- `reddit_subreddits_popular`, `_new` and `_default` say the weekly fields are null on those lists.
+
 ## 0.20.2 (2026-11-10)
 
 No new tools; one new input and description fixes.

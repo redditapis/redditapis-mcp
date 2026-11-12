@@ -1,6 +1,6 @@
 {
   "name": "redditapis-mcp",
-  "version": "0.20.2",
+  "version": "0.20.3",
   "mcpName": "io.github.redditapis/redditapis-mcp",
   "description": "Reddit API as 61 MCP tools for Claude, Cursor and any MCP client: search, subreddits, posts, comments, users, media, monitors with webhooks, account writes (post, comment, vote, DM) and feedback. Hosted server at api.redditapis.com/mcp.",
   "repository": {
