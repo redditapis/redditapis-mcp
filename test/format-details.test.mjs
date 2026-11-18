@@ -83,6 +83,25 @@ for (const name of ["reddit_search_users", "reddit_subreddits_popular", "reddit_
   ok("reddit_search passes include_bodies through, omits it by default, and its description names it");
 }
 
+// 2b2. match=exact|any on post search
+{
+  const s = byName.reddit_search.shape.match;
+  assert.ok(s, "reddit_search declares match");
+  assert.ok(s.safeParse(undefined).success, "match is optional");
+  for (const v of ["exact", "any"]) assert.ok(s.safeParse(v).success, `match accepts ${v}`);
+  assert.equal(s.safeParse("phrase").success, false, "match refuses an unknown value");
+  const { calls, impl } = recordingFetch({ posts: [], after: null });
+  const c = await connect(impl);
+  await c.callTool({ name: "reddit_search", arguments: { q: "PropellerAds", match: "exact" } });
+  await c.callTool({ name: "reddit_search", arguments: { q: "PropellerAds", match: "any" } });
+  await c.callTool({ name: "reddit_search", arguments: { q: "PropellerAds" } });
+  assert.equal(query(calls[0].url).get("match"), "exact", "reddit_search sends match=exact");
+  assert.equal(query(calls[1].url).get("match"), "any", "reddit_search sends match=any");
+  assert.equal(query(calls[2].url).has("match"), false, "absent match is not sent");
+  assert.match(byName.reddit_search.description, /match='exact'/);
+  ok("reddit_search passes match through, omits it by default, and its description names it");
+}
+
 // 2c. reddit_search_media kind offers gallery, keeps gif for older callers
 {
   const k = byName.reddit_search_media.shape.kind;

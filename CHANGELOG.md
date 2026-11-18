@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.4 (2026-11-18)
+
+No new tools; one new input.
+
+- `reddit_search`: optional `match` (`exact` | `any`). `exact` keeps only posts whose title or body contains `q` as a whole word or phrase, case-insensitive (surrounding quotes on `q` are ignored), for a brand that Reddit's own search splits and matches loosely. It reads the self-post bodies the page left null to test them, so it answers slower, like `include_bodies`. `any` or omitted keeps Reddit's matching unchanged.
+
+Needs the API release that accepts `match` on `GET /api/reddit/search`. test/format-details.test.mjs checks it reaches the query string, and is left out when absent.
+
 ## 0.20.3 (2026-11-12)
 
 No new tools; description updates.
