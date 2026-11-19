@@ -18,6 +18,7 @@ import { createSetWatchHandler } from "./watch.js";
 import { createReadLedger, createExplainHandler } from "./provenance.js";
 import { registerPlaybooks } from "./playbooks.js";
 import { toolAnnotations } from "./annotations.js";
+import { aliasedShape, normalizeArgs } from "./input-aliases.js";
 
 // Read from package.json rather than a hand-maintained literal -- this drifted
 // silently to "0.1.0" while the published package reached 0.1.12, so every
@@ -505,10 +506,17 @@ export function createServer({
         return result;
       };
     }
+    // username/query/post_id are accepted as aliases of name/q/id (85f3f21b, src/input-aliases.js): moved onto the
+    // canonical name before the handler runs, never sent to the API.
+    const inner = handler;
     server.registerTool(
       tool.name,
-      { title, description: tool.description, inputSchema: tool.shape, annotations },
-      handler,
+      { title, description: tool.description, inputSchema: aliasedShape(tool), annotations },
+      async (args, extra) => {
+        const n = normalizeArgs(tool, args);
+        if (n.error) return { isError: true, content: [{ type: "text", text: n.error }] };
+        return inner(n.args, extra);
+      },
     );
   }
 
