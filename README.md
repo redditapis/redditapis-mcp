@@ -240,7 +240,7 @@ The bodies are documentation and name the calls they are recipes for, which is t
 | `reddit_comment` | `POST /api/reddit/comment` | Comment on a post as you. |
 | `reddit_submit` | `POST /api/reddit/submit` | Submit a text or link post to a subreddit as you. |
 | `reddit_vote` | `POST /api/reddit/vote` | Upvote, downvote or clear a vote on a post or comment as you. |
-| `reddit_dm` | `POST /api/reddit/dm` | Send a private chat message as you. Only a delivered message is billed. |
+| `reddit_dm` | `POST /api/reddit/dm` | Send a private chat message as you. |
 | `reddit_dm_threads` | `POST /api/reddit/dm/threads` | Your chat conversations, newest activity first, paged with `limit` and `after`. |
 | `reddit_dm_messages` | `POST /api/reddit/dm/messages` | The messages of one conversation, paged with `before`. |
 | `reddit_scheduled_create` | `POST /api/reddit/schedule` | Schedule a post or a comment for later (`run_at` 60 seconds to 30 days ahead). It runs as your connected session at that time. Free to schedule; billed at the write rate only when the run succeeds. |
