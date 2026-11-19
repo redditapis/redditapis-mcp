@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.5 (2026-11-19)
+
+No new tools; description updates.
+
+- `reddit_post_visibility` describes the new response fields `removed` (boolean) and `removal_marker` (string or null). `removed` is true only when Reddit itself marks the post as taken down (removed_by_category), and is the field to alert on. A `not_visible` verdict from listing absence alone is `confident: false` and `removed: false`, not a removal. Needs the API release that returns both fields.
+
 ## 0.20.4 (2026-11-18)
 
 No new tools; one new input.
