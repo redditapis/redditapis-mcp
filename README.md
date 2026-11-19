@@ -145,7 +145,7 @@ A few conventions across the catalog:
 
 | Tool | Endpoint | What it does |
 |---|---|---|
-| `reddit_post_visibility` | `GET /api/reddit/post/{id}/visibility` | Is a post still publicly visible, or did it quietly stop being so? Fetches the post and one page of its author's listing and compares. Returns `live`, `not_visible` or `undecidable` with a reason, and never claims to know WHY. Two upstream calls, $0.004. |
+| `reddit_post_visibility` | `GET /api/reddit/post/{id}/visibility` | Is a post still publicly visible, or did it quietly stop being so? Fetches the post and one page of its author's listing and compares. Returns `live`, `not_visible` or `undecidable` with a reason, plus `removed` (boolean) and `removal_marker` (string or null). Alert on `removed`: it is true only when Reddit itself marks the post as taken down. `not_visible` from listing absence alone is `confident: false`, `removed: false`, not a removal. Beyond Reddit's marker it never claims to know WHY. Two upstream calls, $0.004. |
 | `reddit_post` | `GET /api/reddit/post/{id}` | A single post by its base-36 `id` (no `t3_` prefix): title, author, score, text, permalink, subreddit, url. |
 | `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`. `format: "normalized"` returns flat comments instead of Reddit's raw tree. |
 | `reddit_post_duplicates` | `GET /api/reddit/post/{id}/duplicates` | Every other post that shares this post's link, across subreddits (Reddit's "other discussions"). |
