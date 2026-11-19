@@ -30,6 +30,8 @@ const EXPECTED_HIDDEN = [
   // server-side; a remote host must not pipe them, so it is hidden there like the five below.
   "reddit_connect",
   "reddit_home_feed",
+  // a62b44d6 (2026-11-19): reddit_login takes a username, password and proxy, so a remote host never lists it.
+  "reddit_login",
   "reddit_user_gilded",
   "reddit_user_hidden",
   "reddit_user_saved",
