@@ -104,7 +104,7 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-61 tools and 3 playbook resources: 33 Reddit reads, 10 Reddit account tools (connect, status, disconnect, comment, submit, vote, DM, and schedule, list or cancel a post or comment for later), 11 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+69 tools and 3 playbook resources: 38 Reddit reads, 13 Reddit account tools (log in, connect, status, disconnect, comment, submit, vote, DM, read DM threads and messages, and schedule, list or cancel a post or comment for later), 11 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
@@ -136,6 +136,8 @@ A few conventions across the catalog:
 | `reddit_subreddit_top` | `GET /api/reddit/sub/{name}/top` | Top posts of a subreddit for a time window (`t`). |
 | `reddit_subreddit_comments` | `GET /api/reddit/sub/{name}/comments` | Stream the newest comments across an entire subreddit (not one post's thread). |
 | `reddit_subreddit_about` | `GET /api/reddit/sub/{name}/about` | A subreddit's public metadata: title, description, subscriber and active-user counts, type, NSFW flag. |
+| `reddit_subreddit_can_post` | `GET /api/reddit/sub/{name}/can-post` | Before posting: whether a post here can go through (`allowed` true, false or unknown), with a reason code per block, the posting requirements and the post rules. |
+| `reddit_subreddits_batch` | `GET /api/reddit/subreddits/batch` | Up to 100 subreddits in one call by name, with the names Reddit did not return in `missing`. |
 | `reddit_subreddit_rules` | `GET /api/reddit/sub/{name}/rules` | A subreddit's posting rules plus Reddit's site-wide rules. |
 | `reddit_subreddit_moderators` | `GET /api/reddit/sub/{name}/moderators` | A subreddit's moderator team, each with permissions, flair, and when they joined. |
 | `reddit_subreddit_flairs` | `GET /api/reddit/sub/{name}/flairs` | A subreddit's post flair templates (`id`, `text`, `editable`, colours, `mod_only`), so a post can carry the `flair_id` the community requires. Reddit lists flairs only to signed-in accounts, so it reads as your connected Reddit session; with none connected it answers 503 `SESSION_REQUIRED` and is not charged. |
@@ -148,6 +150,8 @@ A few conventions across the catalog:
 | `reddit_post_visibility` | `GET /api/reddit/post/{id}/visibility` | Is a post still publicly visible, or did it quietly stop being so? Fetches the post and one page of its author's listing and compares. Returns `live`, `not_visible` or `undecidable` with a reason, plus `removed` (boolean) and `removal_marker` (string or null). Alert on `removed`: it is true only when Reddit itself marks the post as taken down. `not_visible` from listing absence alone is `confident: false`, `removed: false`, not a removal. Beyond Reddit's marker it never claims to know WHY. Two upstream calls, $0.004. |
 | `reddit_post` | `GET /api/reddit/post/{id}` | A single post by its base-36 `id` (no `t3_` prefix): title, author, score, text, permalink, subreddit, url. |
 | `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`. `format: "normalized"` returns flat comments instead of Reddit's raw tree. |
+| `reddit_post_comments_expanded` | `GET /api/reddit/post/{id}/comments/expanded` | The comment tree with Reddit's collapsed replies ("load more comments", "continue this thread") read in and put back in place. A flat $0.02 per call. |
+| `reddit_comment_by_id` | `GET /api/reddit/comment/{id}` | One comment by its id. |
 | `reddit_post_duplicates` | `GET /api/reddit/post/{id}/duplicates` | Every other post that shares this post's link, across subreddits (Reddit's "other discussions"). |
 | `reddit_by_id` | `GET /api/reddit/by_id/{fullnames}` | Bulk-hydrate up to 100 posts in one call from a comma-separated list of `t3_` fullnames. |
 
@@ -156,6 +160,7 @@ A few conventions across the catalog:
 | Tool | Endpoint | What it does |
 |---|---|---|
 | `reddit_user_profile` | `GET /api/reddit/user/{name}` | A user's public profile: karma, account age, verified/employee flags, avatar. |
+| `reddit_users_batch` | `GET /api/reddit/users/batch` | Up to 100 accounts in one call by `t2_` fullname, with the ids Reddit did not return in `missing`. |
 | `reddit_user_comments` | `GET /api/reddit/user/{name}/comments` | A user's recent comments (body, score, subreddit, parent link, timestamp). |
 | `reddit_user_submitted` | `GET /api/reddit/user/{name}/submitted` | A user's submitted posts (the sibling of `reddit_user_comments`). |
 | `reddit_user_achievements` | `GET /api/reddit/user/{name}/achievements` | A user's public achievements (the trophies on their profile): name, description, granted timestamp, icons. An account with none returns an empty list. |
@@ -230,10 +235,13 @@ The bodies are documentation and name the calls they are recipes for, which is t
 | `reddit_connect` | `POST /api/reddit/session` | Store your Reddit session once (reddit_session and loid cookies; add csrf_token for votes and DMs). A logged-out session is refused. Free. |
 | `reddit_session_status` | `GET /api/reddit/session` | Whether a session is connected, its username, and when it was last used. Never returns the cookies. Free. |
 | `reddit_disconnect` | `POST /api/reddit/session/delete` | Delete the stored session. Free. |
+| `reddit_login` | `POST /api/reddit/login` | Log in with a username and password (and TOTP secret for 2FA) to get the cookies `reddit_connect` takes. The cookies come back in the result. Not listed by a host that never takes Reddit credentials. |
 | `reddit_comment` | `POST /api/reddit/comment` | Comment on a post as you. |
 | `reddit_submit` | `POST /api/reddit/submit` | Submit a text or link post to a subreddit as you. |
 | `reddit_vote` | `POST /api/reddit/vote` | Upvote, downvote or clear a vote on a post or comment as you. |
 | `reddit_dm` | `POST /api/reddit/dm` | Send a private chat message as you. |
+| `reddit_dm_threads` | `POST /api/reddit/dm/threads` | Your chat conversations, newest activity first, paged with `limit` and `after`. |
+| `reddit_dm_messages` | `POST /api/reddit/dm/messages` | The messages of one conversation, paged with `before`. |
 | `reddit_scheduled_create` | `POST /api/reddit/schedule` | Schedule a post or a comment for later (`run_at` 60 seconds to 30 days ahead). It runs as your connected session at that time. Free to schedule; billed at the write rate only when the run succeeds. |
 | `reddit_scheduled_list` | `GET /api/reddit/schedule` | Your scheduled posts and comments, newest first, with each one's `status`, `result` or `error`, and whether it was `billed`. Free. |
 | `reddit_scheduled_cancel` | `POST /api/reddit/schedule/cancel` | Cancel a scheduled post or comment that has not run yet. A cancelled action never runs and is not charged. Free. |
