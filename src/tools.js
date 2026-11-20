@@ -666,6 +666,59 @@ export const TOOLS = [
     },
   },
   {
+    name: "reddit_comment_by_id",
+    path: "/api/reddit/comment/{id}",
+    description:
+      "Fetches one comment by its id: Reddit's native t1 comment node (body, author, score, parent, permalink). A comment that does not exist is a 404. Standard read price. Example: id='abc123'.",
+    shape: {
+      id: z.string().min(1).describe("The comment id, the part after t1_ (e.g. 'abc123'). Required (path parameter)."),
+    },
+  },
+  {
+    name: "reddit_post_comments_expanded",
+    path: "/api/reddit/post/{id}/comments/expanded",
+    description:
+      "A post and its comment tree with Reddit's collapsed replies read in. On a big thread Reddit hides part of the tree behind 'load more comments' and 'continue this thread' stubs; this reads those stubs (up to 100 hidden comments per expansion read) and puts the comments back where the stubs were, in the same tree shape as the permalink comment read. `expansion` reports what was read and what is still collapsed (`complete`, `remaining_more_comments`, `stopped_reason`); the returned `after` cursor reads the rest. A flat $0.02 per call; when an expansion read fails, the partial tree comes back and the call is not billed.",
+    shape: {
+      id: z.string().min(1).describe("Reddit post id, e.g. '1sgjld3'. A t3_ prefix is optional. Required (path parameter)."),
+      limit: z.number().int().min(1).max(500).optional().describe("Maximum top-level comments, 1-500 (default 100)."),
+      sort: z.enum(["confidence", "top", "new", "controversial", "old", "qa"]).optional().describe(
+        "Comment ordering: confidence (Reddit's best), top, new, controversial, old or qa. Absent, Reddit's default for the thread.",
+      ),
+      max_expansions: z.number().int().min(1).max(9).optional().describe("Most expansion reads this call may make, 1-9 (default 9)."),
+      after: z.string().optional().describe(
+        "The `after` cursor from a previous answer for the same post, exactly as returned: reads only the comments still collapsed. Absent, the whole thread is read.",
+      ),
+    },
+  },
+  {
+    name: "reddit_subreddit_can_post",
+    path: "/api/reddit/sub/{name}/can-post",
+    description:
+      "Checks before posting whether a post in this subreddit can go through. Returns `allowed` (true, false or 'unknown'), `reasons` (each with a `code` such as banned, private, restricted_approved_only, archived, flair_required, title_rule, domain_blocked, low_karma_hint, new_account_hint, and a readable `detail`), the subreddit's posting `requirements` and post `rules`. A read that failed answers 'unknown', not true; karma and account age only produce hints, because subreddits keep their AutoModerator thresholds private. Standard read price. Example: name='SaaS'.",
+    shape: {
+      name: z.string().min(1).describe("Subreddit name, without r/ (1 to 21 letters, digits or underscores). Required (path parameter)."),
+    },
+  },
+  {
+    name: "reddit_subreddits_batch",
+    path: "/api/reddit/subreddits/batch",
+    description:
+      "Up to 100 subreddits in one call, by name: a `subreddits` list (the same per-item shape as the single-subreddit about read), `requested`, `returned`, and `missing` (names Reddit did not return because the subreddit does not exist, is banned or is private). One read at the standard read price. Example: names='SaaS,startups,webdev'.",
+    shape: {
+      names: z.string().min(1).describe("Comma-separated subreddit names without r/, up to 100. Duplicates are ignored. Required."),
+    },
+  },
+  {
+    name: "reddit_users_batch",
+    path: "/api/reddit/users/batch",
+    description:
+      "Up to 100 Reddit accounts in one call, by t2_ fullname (the `author_info.fullname` every post and comment result carries): a `users` list (name, created, link, comment and total karma, profile image, NSFW profile flag), `requested`, `returned`, and `missing` (deleted, suspended or nonexistent accounts). Reddit has no batch read by username, so this takes ids only. One read at the standard read price. Example: ids='t2_16b0vi,t2_abc12'.",
+    shape: {
+      ids: z.string().min(1).describe("Comma-separated t2_ account fullnames, up to 100. The t2_ prefix is required."),
+    },
+  },
+  {
     name: "reddit_subreddits_popular",
     path: "/api/reddit/subreddits/popular",
     description:
@@ -940,6 +993,31 @@ export const TOOLS = [
     shape: {},
   },
   {
+    name: "reddit_session_check",
+    path: "/api/reddit/session/check",
+    method: "POST",
+    description:
+      "Asks Reddit now whether the connected Reddit session is still signed in, before a write. The connection status reports what is stored and learns a session died only after a write failed on it; this checks it live and stores nothing. Returns `valid`; when true, the account's username, `write_ready` (comment, submit, vote, dm: voting and messaging also need the CSRF cookie) and `missing_cookies`; when false, `code` SESSION_LOGGED_OUT (log in again and reconnect) or NO_SESSION (nothing connected). A logged-out stored session is marked dead. 502 SESSION_CHECK_FAILED means Reddit could not be reached, which says nothing about the session. Free.",
+    shape: {},
+  },
+  {
+    name: "reddit_login",
+    path: "/api/reddit/login",
+    method: "POST",
+    write: true,
+    description:
+      "Logs in to a Reddit account with its username and password (plus the TOTP secret when the account has two-factor auth) and returns that account's session cookies (the session cookie, loid, the CSRF cookie and others), the input the connect tool stores server-side. The cookies come back in this tool's result, so they sit in the conversation until they are connected. Reddit sees a real login, which can send the account a login alert. Billed at the login rate. A host built without inline credentials does not list this tool.",
+    shape: {
+      username: z.string().min(1).describe("Reddit username or email."),
+      password: z.string().min(1).describe("The account password."),
+      totp_secret: z.string().optional().describe("Base32 TOTP secret, for an account with two-factor auth. Absent when it is off."),
+      method: z.enum(["http", "browser"]).optional().describe("http (default) or browser. browser gives the most compatible write-session cookies."),
+      proxy: z.string().optional().describe(
+        "Sticky IP for this account, http://user:pass@host:port or host:port. The same one belongs on every later call as this account.",
+      ),
+    },
+  },
+  {
     name: "reddit_disconnect",
     path: "/api/reddit/session/delete",
     method: "POST",
@@ -1003,6 +1081,29 @@ export const TOOLS = [
       to_username: z.string().optional().describe("Recipient username. Provide this or to_user_t2."),
       to_user_t2: z.string().regex(/^t2_[a-z0-9]+$/).optional().describe("Recipient t2_ id directly, instead of to_username."),
       message: z.string().min(1).describe("Plain-text message body."),
+    },
+  },
+  {
+    name: "reddit_dm_threads",
+    path: "/api/reddit/dm/threads",
+    method: "POST",
+    description:
+      "Lists the connected account's private chat conversations, newest activity first: one entry per thread with `room_id`, the other party (`with_user_t2`, `with_username`, `with_membership`), the latest message preview and `unread_count`. Paged: up to `limit` threads per call and an `after` cursor (null on the last page); `total_threads` counts every conversation. `listing_status` is complete, or unknown when Reddit would not list them all. Reads as the connected (stored) session. Billed at the DM read rate per page.",
+    shape: {
+      limit: z.number().int().min(1).max(100).optional().describe("Threads per page, 1 to 100 (default 50)."),
+      after: z.string().optional().describe("The previous response's `after` cursor, exactly as returned. Absent on the first page."),
+    },
+  },
+  {
+    name: "reddit_dm_messages",
+    path: "/api/reddit/dm/messages",
+    method: "POST",
+    description:
+      "Reads the messages of one private chat thread, newest first, as the connected (stored) session. Takes a thread's `room_id` from the thread list. Paged: the previous response's `next_cursor`, sent as `before`, reads older messages. Billed at the DM read rate per page.",
+    shape: {
+      room_id: z.string().min(1).describe("The thread's room_id from the DM thread list (e.g. '!abc...:reddit.com'). Required."),
+      limit: z.number().int().min(1).max(100).optional().describe("Messages per page, 1 to 100 (default 50)."),
+      before: z.string().optional().describe("The previous response's `next_cursor`, for the next older page. Absent for the latest page."),
     },
   },
 

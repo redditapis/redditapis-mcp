@@ -60,6 +60,14 @@ export const TOOL_ANNOTATIONS = {
   reddit_subreddit_flairs: { title: "List Subreddit Post Flairs", ...READ_REDDIT },
   reddit_subreddit_wiki: { title: "Subreddit Wiki Page", ...READ_REDDIT },
   reddit_by_id: { title: "Get Posts by ID", ...READ_REDDIT },
+  reddit_comment_by_id: { title: "Get Comment by ID", ...READ_REDDIT },
+  reddit_post_comments_expanded: { title: "Get Expanded Comment Tree", ...READ_REDDIT },
+  reddit_subreddit_can_post: { title: "Subreddit Posting Eligibility", ...READ_REDDIT },
+  reddit_subreddits_batch: { title: "Get Subreddits by Name", ...READ_REDDIT },
+  reddit_users_batch: { title: "Get Users by ID", ...READ_REDDIT },
+  // The connected account's own chat, read from Reddit as that account.
+  reddit_dm_threads: { title: "List DM Threads", ...READ_REDDIT },
+  reddit_dm_messages: { title: "DM Thread Messages", ...READ_REDDIT },
   reddit_subreddits_popular: { title: "List Popular Subreddits", ...READ_REDDIT },
   reddit_subreddits_new: { title: "List New Subreddits", ...READ_REDDIT },
   reddit_subreddits_default: { title: "List Default Subreddits", ...READ_REDDIT },
@@ -92,6 +100,10 @@ export const TOOL_ANNOTATIONS = {
   // credential, so both are destructive.
   reddit_connect: { title: "Connect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: true },
   reddit_session_status: { title: "Reddit Connection Status", ...READ_OWN },
+  // Asks Reddit (openWorld) and changes nothing it was not already true of: a logged-out row is marked dead.
+  reddit_session_check: { title: "Reddit Session Validity", ...READ_REDDIT },
+  // A real login at Reddit: not idempotent (each call is a new login), not destructive.
+  reddit_login: { title: "Reddit Account Login", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_disconnect: { title: "Disconnect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: false },
   reddit_comment: { title: "Post Comment", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_submit: { title: "Submit Post", readOnly: false, destructive: false, idempotent: false, openWorld: true },
