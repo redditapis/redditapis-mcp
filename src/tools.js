@@ -993,14 +993,6 @@ export const TOOLS = [
     shape: {},
   },
   {
-    name: "reddit_session_check",
-    path: "/api/reddit/session/check",
-    method: "POST",
-    description:
-      "Asks Reddit now whether the connected Reddit session is still signed in, before a write. The connection status reports what is stored and learns a session died only after a write failed on it; this checks it live and stores nothing. Returns `valid`; when true, the account's username, `write_ready` (comment, submit, vote, dm: voting and messaging also need the CSRF cookie) and `missing_cookies`; when false, `code` SESSION_LOGGED_OUT (log in again and reconnect) or NO_SESSION (nothing connected). A logged-out stored session is marked dead. 502 SESSION_CHECK_FAILED means Reddit could not be reached, which says nothing about the session. Free.",
-    shape: {},
-  },
-  {
     name: "reddit_login",
     path: "/api/reddit/login",
     method: "POST",

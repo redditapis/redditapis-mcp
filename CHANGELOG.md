@@ -2,13 +2,11 @@
 
 ## 0.21.0 (2026-11-19)
 
-Nine new tools, so every documented REST route has one (feedback a62b44d6).
+Eight new tools for the documented REST routes (feedback a62b44d6). The live session check waits for its API route.
 
 - `reddit_dm_threads` and `reddit_dm_messages` read the connected account's chat: conversations (paged with `limit` and `after`, with `total_threads`) and one conversation's messages (paged with `before`).
-- `reddit_session_check` asks Reddit whether the connected session is still signed in before a write. Free; stores nothing.
 - `reddit_login` logs in with a username and password and returns the cookies `reddit_connect` stores. It takes credentials, so a host built with `inlineCredentials: false` does not list it.
 - `reddit_comment_by_id`, `reddit_post_comments_expanded` (collapsed replies read in), `reddit_subreddit_can_post`, `reddit_subreddits_batch` and `reddit_users_batch` cover the remaining read routes.
-- `reddit_dm_threads` paging and `reddit_session_check` need the API release that ships them.
 - Input aliases (feedback 85f3f21b): the user tools accept `username` for `name`, every tool with a `q` input accepts `query`, and the post tools accept `post_id` for `id`. The alias is moved onto the canonical field before the call and never sent to the API; passing both with different values is an error.
 
 ## 0.20.5 (2026-11-19)

@@ -187,8 +187,8 @@ const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor
 // harmless" is precisely the claim a reviewer should be able to check by
 // reading one line.
 // reddit_dm_threads / reddit_dm_messages read the connected account's chat (the REST routes are POST so the session
-// travels in a body); reddit_session_check asks Reddit whether the stored session is signed in (feedback a62b44d6).
-const READ_VIA_POST_TOOL_NAMES = new Set(["reddit_verify_comments", "reddit_dm_threads", "reddit_dm_messages", "reddit_session_check"]);
+// travels in a body) (feedback a62b44d6).
+const READ_VIA_POST_TOOL_NAMES = new Set(["reddit_verify_comments", "reddit_dm_threads", "reddit_dm_messages"]);
 
 check("only the 6 named monitor/webhook tools and reddit_feedback_send are writes; everything else is a pure read", () => {
   for (const t of TOOLS) {
