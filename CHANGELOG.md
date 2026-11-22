@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.0 (2026-11-22)
+
+One new tool (registry 13417, feedback 76cd7e71).
+
+- `reddit_session_check` asks Reddit now whether the connected session is still signed in, before a write: `valid`, the username and which writes it can make (`write_ready`). `reddit_session_status` reports only what is stored. Free; stores nothing. Needs the API release that ships `POST /api/reddit/session/check`; publish only after that route is live.
+
 ## 0.21.0 (2026-11-19)
 
 Eight new tools for the documented REST routes (feedback a62b44d6). The live session check waits for its API route.

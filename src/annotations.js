@@ -101,6 +101,7 @@ export const TOOL_ANNOTATIONS = {
   reddit_connect: { title: "Connect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: true },
   reddit_session_status: { title: "Reddit Connection Status", ...READ_OWN },
   // Asks Reddit (openWorld) and changes nothing it was not already true of: a logged-out row is marked dead.
+  reddit_session_check: { title: "Reddit Session Validity", ...READ_REDDIT },
   // A real login at Reddit: not idempotent (each call is a new login), not destructive.
   reddit_login: { title: "Reddit Account Login", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_disconnect: { title: "Disconnect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: false },

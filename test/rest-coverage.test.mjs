@@ -18,6 +18,7 @@ const REQUIRED = [
   ["GET", "/api/reddit/subreddits/batch", false],
   ["GET", "/api/reddit/users/batch", false],
   ["POST", "/api/reddit/login", true],
+  ["POST", "/api/reddit/session/check", false],
 ];
 
 let n = 0;
