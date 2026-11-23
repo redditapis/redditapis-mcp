@@ -43,6 +43,8 @@ export const TOOL_ANNOTATIONS = {
   reddit_search_media: { title: "Search Media Posts", ...READ_REDDIT },
   reddit_search_users: { title: "Search Users", ...READ_REDDIT },
   reddit_ads_search: { title: "Search Reddit Ads", ...READ_REDDIT },
+  reddit_typeahead: { title: "Typeahead Suggestions", ...READ_REDDIT },
+  reddit_political_ads: { title: "List Political Ad Disclosures", ...READ_REDDIT },
   reddit_subreddit_top: { title: "Top Subreddit Posts", ...READ_REDDIT },
   reddit_post: { title: "Get Post", ...READ_REDDIT },
   reddit_user_profile: { title: "Get User Profile", ...READ_REDDIT },
@@ -90,6 +92,8 @@ export const TOOL_ANNOTATIONS = {
   reddit_monitor_webhook_create: { title: "Create Webhook", readOnly: false, destructive: false, idempotent: false, openWorld: false },
   reddit_monitor_webhook_test: { title: "Send Webhook Test", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_monitor_webhook_redrive: { title: "Redrive Dead Webhook Deliveries", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+  // Changes only the fields sent on an email target (mode, paused): not destructive, idempotent, this service only.
+  reddit_monitor_webhook_update: { title: "Update Email Target", readOnly: false, destructive: false, idempotent: true, openWorld: false },
   reddit_monitor_webhook_delete: { title: "Delete Webhook", readOnly: false, destructive: true, idempotent: true, openWorld: false },
   reddit_feedback_send: { title: "Send Feedback Report", readOnly: false, destructive: true, idempotent: false, openWorld: false },
   reddit_set_watch: { title: "Create Watch", readOnly: false, destructive: false, idempotent: false, openWorld: true },
@@ -110,6 +114,11 @@ export const TOOL_ANNOTATIONS = {
   reddit_submit: { title: "Submit Post", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_vote: { title: "Vote", readOnly: false, destructive: false, idempotent: true, openWorld: true },
   reddit_dm: { title: "Send Direct Message", readOnly: false, destructive: false, idempotent: false, openWorld: true },
+  // Profile writes replace the current value (destructive: Reddit keeps no history). Setting the same text twice
+  // changes nothing more (idempotent); each avatar call is a new upload (not idempotent).
+  reddit_profile_description: { title: "Profile Description Update", readOnly: false, destructive: true, idempotent: true, openWorld: true },
+  reddit_profile_display_name: { title: "Profile Display Name Update", readOnly: false, destructive: true, idempotent: true, openWorld: true },
+  reddit_profile_avatar: { title: "Profile Avatar Upload", readOnly: false, destructive: true, idempotent: false, openWorld: true },
 
   // Scheduled posts and comments. create is openWorld: the call itself only stores the action,
   // but its effect is a post or comment on Reddit at run_at, so a client weighs it like submit.

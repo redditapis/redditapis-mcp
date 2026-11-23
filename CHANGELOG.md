@@ -1,8 +1,15 @@
 # Changelog
 
-## 0.22.0 (2026-11-22)
+## 0.22.0 (2026-11-23)
 
-One new tool (registry 13417, feedback 76cd7e71).
+Seven new tools (registry 13417, feedback 76cd7e71 and a62b44d6) and input aliases across the catalog (feedback 85f3f21b).
+
+- `reddit_typeahead` (`GET /api/reddit/typeahead`): search-as-you-type subreddit suggestions for a prefix, or with `sub` the posts in that subreddit whose titles match. Read rate.
+- `reddit_political_ads` (`GET /api/reddit/political-ads`): Reddit's political-ad disclosures parsed into advertiser, spend band, impressions, run dates and targeting. Read rate.
+- `reddit_profile_description`, `reddit_profile_display_name` and `reddit_profile_avatar` (`POST /api/reddit/profile/description`, `/display-name`, `/avatar`): change the connected account's profile through the stored session. Write rate.
+- `reddit_monitor_webhook_update` (`POST /api/reddit/monitor/webhook/update`): change an email target's delivery mode, or pause and resume it. Free.
+- `reddit_post_comments` also takes `url` or `post_id` (alias `id`) in place of `permalink`, as the REST route does; an existing `permalink` call is unchanged.
+- More aliases beside `username`, `query` and `post_id`: `subreddit` for `name` on the `/sub/{name}` tools and for `sub` on `reddit_typeahead`, `name` for `subreddit` on `reddit_subreddit_posts` and `reddit_submit`, `comment_id` for `id` on `reddit_comment_by_id`, and `username` for `to_username` on `reddit_dm`. Each alias is moved onto the canonical name before the request and never sent; the canonical name stays the documented one.
 
 - `reddit_session_check` asks Reddit now whether the connected session is still signed in, before a write: `valid`, the username and which writes it can make (`write_ready`). `reddit_session_status` reports only what is stored. Free; stores nothing. Needs the API release that ships `POST /api/reddit/session/check`; publish only after that route is live.
 

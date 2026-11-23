@@ -104,11 +104,12 @@ Authentication is a Bearer token: the server sends `Authorization: Bearer <REDDI
 
 ## Tools
 
-70 tools and 3 playbook resources: 38 Reddit reads, 14 Reddit account tools (log in, connect, status, a live session check, disconnect, comment, submit, vote, DM, read DM threads and messages, and schedule, list or cancel a post or comment for later), 11 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
+76 tools and 3 playbook resources: 40 Reddit reads, 17 Reddit account tools (log in, connect, status, a live session check, disconnect, comment, submit, vote, DM, read DM threads and messages, set the profile description, display name or avatar, and schedule, list or cancel a post or comment for later), 12 monitor/webhook management tools, `reddit_set_watch` (one call that stands up a whole watch), `reddit_explain` (where the rows you are holding came from), 3 feedback tools, and 2 account tools (`reddit_account_me`, which is also where the credit balance lives, and `reddit_account_payments`, the top-up history). Reddit writes (commenting, posting, voting, DMs) act as YOUR Reddit account and only after you connect it with `reddit_connect`; each is marked as a write so your client asks before it runs. Monitor/webhook tools configure your OWN redditapis.com account (an alerting subscription), never Reddit itself, and the feedback tools send a report to the redditapis.com team, never to Reddit. Every read works with just your API key; the 6 monitor/webhook writes additionally need an active monitoring plan (see Monitoring below). The feedback tools are free and need only your key.
 
 A few conventions across the catalog:
 
 - Subreddit names go in **without** the `r/` prefix, and usernames **without** the `u/` prefix. `reddit_subreddit_posts` takes its community as `subreddit`; the `/sub/{name}/...` tools take it as `name`.
+- Each input has one canonical name in the schema, and the common alternative is accepted as an alias on every tool where it means the same thing: `username` for `name` on the user tools (and for `to_username` on `reddit_dm`), `query` for `q`, `post_id` for `id` on the post tools (and `id` for `post_id` on `reddit_post_comments`), `subreddit` for `name` on the `/sub/{name}` tools (and for `sub` on `reddit_typeahead`), `name` for `subreddit` on `reddit_subreddit_posts` and `reddit_submit`, and `comment_id` for `id` on `reddit_comment_by_id`. The alias is moved onto the canonical name before the request; sending both with different values is refused.
 - Listing and search tools return an `after` cursor. Pass it back as `after` to fetch the next page, exactly as it was returned. `limit` accepts 1 to 100 (the API clamps out-of-range values).
 - When `after` comes back `null` there is no next page to ask for. That does not always mean you have every item: Reddit often stops serving a busy listing long before it runs out. The final response also carries `listing_status`, which reads `complete`, `truncated` or `unknown`. Only `complete` means nothing is missing. Treat the other two as a partial answer and widen across sorts, timeframes or search terms rather than paging deeper.
 - `t` (`hour`, `day`, `week`, `month`, `year`, `all`) sets the time window; on subreddit listings it applies to the `top` and `controversial` sorts, and on search it bounds the whole result set.
@@ -124,6 +125,8 @@ A few conventions across the catalog:
 | `reddit_search_communities` | `GET /api/reddit/search/communities` | Find subreddits by name or topic (title, subscribers, description, NSFW flag). |
 | `reddit_search_users` | `GET /api/reddit/search/users` | Find redditors by name or keyword (username, karma, account age). `include_details: true` fills `link_karma`, `comment_karma` and `created` on up to the first 10 users. |
 | `reddit_ads_search` | `GET /api/reddit/ads/search` | Search the Reddit ads library: promoted posts with advertiser, title, landing page, call to action, media, every subreddit each ad appeared in, first and last seen dates and sightings. Filter by `q`, `advertiser`, `domain`, `subreddit`, `campaign_id`, `since` and `until`. Reddit's own house ads are excluded. Newest first; page with `cursor` (the previous response's `after`). Returns `ads`, `count`, `after` and `has_more`. Billed at the read rate, the same as `reddit_search`. |
+| `reddit_typeahead` | `GET /api/reddit/typeahead` | Search-as-you-type: subreddits whose names match a prefix, or with `sub` the posts in that subreddit whose titles match (default 8, max 20). No Reddit login. |
+| `reddit_political_ads` | `GET /api/reddit/political-ads` | Reddit's political-ad disclosures (r/RedditPoliticalAds) parsed into advertiser, spend band, impressions, run dates and targeting; `sort` new, top or hot. |
 
 ### Subreddits
 
@@ -149,7 +152,7 @@ A few conventions across the catalog:
 |---|---|---|
 | `reddit_post_visibility` | `GET /api/reddit/post/{id}/visibility` | Is a post still publicly visible, or did it quietly stop being so? Fetches the post and one page of its author's listing and compares. Returns `live`, `not_visible` or `undecidable` with a reason, plus `removed` (boolean) and `removal_marker` (string or null). Alert on `removed`: it is true only when Reddit itself marks the post as taken down. `not_visible` from listing absence alone is `confident: false`, `removed: false`, not a removal. Beyond Reddit's marker it never claims to know WHY. Two upstream calls, $0.004. |
 | `reddit_post` | `GET /api/reddit/post/{id}` | A single post by its base-36 `id` (no `t3_` prefix): title, author, score, text, permalink, subreddit, url. |
-| `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`. `format: "normalized"` returns flat comments instead of Reddit's raw tree. |
+| `reddit_post_comments` | `GET /api/reddit/comments` | A post plus its full threaded comment tree, fetched by `permalink`, `url` or `post_id`. `format: "normalized"` returns flat comments instead of Reddit's raw tree. |
 | `reddit_post_comments_expanded` | `GET /api/reddit/post/{id}/comments/expanded` | The comment tree with Reddit's collapsed replies ("load more comments", "continue this thread") read in and put back in place. A flat $0.02 per call. |
 | `reddit_comment_by_id` | `GET /api/reddit/comment/{id}` | One comment by its id. |
 | `reddit_post_duplicates` | `GET /api/reddit/post/{id}/duplicates` | Every other post that shares this post's link, across subreddits (Reddit's "other discussions"). |
@@ -192,6 +195,7 @@ Monitors watch **named subreddits or all of Reddit**, for **posts or comments** 
 | `reddit_monitor_webhook_list` | `GET /api/reddit/monitor/webhook/list` | List your webhooks. Never returns the secret; a Slack or Discord URL comes back masked (`url_masked: true`). |
 | `reddit_monitor_webhook_test` | `POST /api/reddit/monitor/webhook/test` | Send a one-off test delivery to confirm a webhook is wired up correctly. |
 | `reddit_monitor_webhook_redrive` | `POST /api/reddit/monitor/webhook/redrive` | Re-send a webhook's dead-lettered deliveries once the endpoint is fixed (`dry_run` lists them first). Free. |
+| `reddit_monitor_webhook_update` | `POST /api/reddit/monitor/webhook/update` | Change an email target's `delivery_mode` (instant, hourly, daily or digest) or pause and resume it (`active`). Email targets only. Free. |
 | `reddit_monitor_webhook_delete` | `POST /api/reddit/monitor/webhook/delete` | Permanently delete a webhook. Does not cascade-pause monitors still pointing at it. |
 
 #### `reddit_set_watch` refuses rather than guesses
@@ -243,6 +247,9 @@ The bodies are documentation and name the calls they are recipes for, which is t
 | `reddit_dm` | `POST /api/reddit/dm` | Send a private chat message as you. |
 | `reddit_dm_threads` | `POST /api/reddit/dm/threads` | Your chat conversations, newest activity first, paged with `limit` and `after`. |
 | `reddit_dm_messages` | `POST /api/reddit/dm/messages` | The messages of one conversation, paged with `before`. |
+| `reddit_profile_description` | `POST /api/reddit/profile/description` | Set your profile description (up to 200 characters; empty clears it). |
+| `reddit_profile_display_name` | `POST /api/reddit/profile/display-name` | Set your display name (up to 90 characters). The username does not change. |
+| `reddit_profile_avatar` | `POST /api/reddit/profile/avatar` | Upload a new avatar, or a banner with `kind: "banner"`, from `image_url` or `image_base64`. |
 | `reddit_scheduled_create` | `POST /api/reddit/schedule` | Schedule a post or a comment for later (`run_at` 60 seconds to 30 days ahead). It runs as your connected session at that time. Free to schedule; billed at the write rate only when the run succeeds. |
 | `reddit_scheduled_list` | `GET /api/reddit/schedule` | Your scheduled posts and comments, newest first, with each one's `status`, `result` or `error`, and whether it was `billed`. Free. |
 | `reddit_scheduled_cancel` | `POST /api/reddit/schedule/cancel` | Cancel a scheduled post or comment that has not run yet. A cancelled action never runs and is not charged. Free. |

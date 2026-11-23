@@ -174,6 +174,12 @@ const WRITE_TOOL_NAMES = new Set([
   // A real login at Reddit (feedback a62b44d6): it changes nothing on the account's content, but Reddit sees and may
   // alert on a login, and its result carries credentials, so a client should ask first.
   "reddit_login",
+  // 0.22.0 (feedback a62b44d6): an email target's delivery mode or pause on the caller's own account, and the
+  // connected Reddit account's own profile (description, display name, avatar) changed on Reddit.
+  "reddit_monitor_webhook_update",
+  // reddit_session_check marks a stored session dead when Reddit confirms it signed out (79c72ae).
+  "reddit_session_check",
+  "reddit_profile_description", "reddit_profile_display_name", "reddit_profile_avatar",
 ]);
 const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect", "reddit_connect", "reddit_scheduled_cancel"]);
 
@@ -187,8 +193,8 @@ const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor
 // harmless" is precisely the claim a reviewer should be able to check by
 // reading one line.
 // reddit_dm_threads / reddit_dm_messages read the connected account's chat (the REST routes are POST so the session
-// travels in a body); reddit_session_check asks Reddit whether the stored session is signed in (feedback a62b44d6).
-const READ_VIA_POST_TOOL_NAMES = new Set(["reddit_verify_comments", "reddit_dm_threads", "reddit_dm_messages", "reddit_session_check"]);
+// travels in a body) (feedback a62b44d6).
+const READ_VIA_POST_TOOL_NAMES = new Set(["reddit_verify_comments", "reddit_dm_threads", "reddit_dm_messages"]);
 
 check("only the 6 named monitor/webhook tools and reddit_feedback_send are writes; everything else is a pure read", () => {
   for (const t of TOOLS) {
