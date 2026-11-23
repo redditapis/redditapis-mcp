@@ -174,6 +174,12 @@ const WRITE_TOOL_NAMES = new Set([
   // A real login at Reddit (feedback a62b44d6): it changes nothing on the account's content, but Reddit sees and may
   // alert on a login, and its result carries credentials, so a client should ask first.
   "reddit_login",
+  // 0.22.0 (feedback a62b44d6): an email target's delivery mode or pause on the caller's own account, and the
+  // connected Reddit account's own profile (description, display name, avatar) changed on Reddit.
+  "reddit_monitor_webhook_update",
+  // reddit_session_check marks a stored session dead when Reddit confirms it signed out (79c72ae).
+  "reddit_session_check",
+  "reddit_profile_description", "reddit_profile_display_name", "reddit_profile_avatar",
 ]);
 const DESTRUCTIVE_TOOL_NAMES = new Set(["reddit_monitor_remove", "reddit_monitor_webhook_delete", "reddit_disconnect", "reddit_connect", "reddit_scheduled_cancel"]);
 

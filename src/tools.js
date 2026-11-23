@@ -222,6 +222,14 @@ const WEBHOOK_ID = {
   id: z.string().min(1).describe("The webhook's id, as returned when the webhook was created or listed."),
 };
 
+// The base-36 post id in a permalink, post URL or bare/t3_ id, lowercased; null when none can be read.
+export function postIdOf(v) {
+  const s = String(v).trim();
+  const m = /\/(?:comments|gallery)\/([A-Za-z0-9]{1,16})(?:[/?#]|$)/.exec(s) || /^https?:\/\/redd\.it\/([A-Za-z0-9]{1,16})/i.exec(s) ||
+    /^(?:t3_)?([A-Za-z0-9]{1,16})$/.exec(s);
+  return m ? m[1].toLowerCase() : null;
+}
+
 // The tool catalog. Path params are {name}/{id} placeholders. Monitor/webhook
 // tools additionally carry `write`/`destructive` and, for POST tools whose
 // body nests a filter_spec, `filterSpecFields` (see buildBody below).
@@ -316,11 +324,25 @@ export const TOOLS = [
   {
     name: "reddit_post_comments",
     path: "/api/reddit/comments",
+    // Two inputs naming different posts are refused here, before a request (the API would read the permalink).
+    validate: (args) => {
+      const ids = ["permalink", "url", "post_id"].filter((k) => typeof args[k] === "string" && args[k] !== "")
+        .map((k) => [k, postIdOf(args[k])]);
+      const known = ids.filter(([, id]) => id);
+      const clash = known.find(([, id]) => id !== known[0][1]);
+      return clash ? `\`${known[0][0]}\` and \`${clash[0]}\` name different posts; send one of them.` : null;
+    },
     description:
-      "Fetches a single post and its comment tree by permalink. Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result. Size a big thread with the three knobs: `limit` caps top-level comments (1-500, default 100), `depth` caps reply depth (1-10; `depth=1` is top-level only; absent is the full tree) and `sort` orders them (confidence = Reddit's best, top, new, controversial, old, qa). `limit=20, depth=1, sort='top'` reads the twenty best top-level comments and nothing below them, which keeps a 2,700-comment thread readable. `meta` echoes limit_used, depth_used and sort_used; with no `sort` sent, sort_used names the sort Reddit applied and sort_defaulted is true. `format='normalized'` returns flat comments instead of Reddit's raw tree.",
+      "Fetches a single post and its comment tree by permalink, post URL or post id (send one). Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result. Size a big thread with the three knobs: `limit` caps top-level comments (1-500, default 100), `depth` caps reply depth (1-10; `depth=1` is top-level only; absent is the full tree) and `sort` orders them (confidence = Reddit's best, top, new, controversial, old, qa). `limit=20, depth=1, sort='top'` reads the twenty best top-level comments and nothing below them, which keeps a 2,700-comment thread readable. `meta` echoes limit_used, depth_used and sort_used; with no `sort` sent, sort_used names the sort Reddit applied and sort_defaulted is true. `format='normalized'` returns flat comments instead of Reddit's raw tree.",
     shape: {
-      permalink: z.string().min(1).describe(
-        "The post permalink path from a prior post result, e.g. '/r/programming/comments/abc123/some_title/'. Required.",
+      permalink: z.string().min(1).optional().describe(
+        "The post permalink path from a prior post result, e.g. '/r/programming/comments/abc123/some_title/'. Send this, `url` or `post_id`.",
+      ),
+      url: z.string().min(1).optional().describe(
+        "Any reddit.com, old.reddit.com or redd.it post URL, in place of `permalink`.",
+      ),
+      post_id: z.string().min(1).optional().describe(
+        "The post id (t3_ prefix optional), in place of `permalink` (alias `id`). Sent with a `permalink` or `url` naming a different post, the call is refused.",
       ),
       limit: z.number().int().min(1).max(500).optional().describe(
         "Maximum top-level comments, 1-500 (default 100). A small value with depth=1 gives a readable summary of a large thread.",
@@ -431,6 +453,33 @@ export const TOOLS = [
       cursor: z.string().optional().describe(
         "Pagination cursor: the previous response's `after` value, passed back exactly. A null `after` (has_more false) means there is no next page. Absent on the opening page.",
       ),
+    },
+  },
+  {
+    // Search-as-you-type (feedback a62b44d6): subreddit suggestions for a prefix, or with `sub` the posts in
+    // that subreddit whose titles match. Read rate, no Reddit login.
+    name: "reddit_typeahead",
+    path: "/api/reddit/typeahead",
+    description:
+      "Typeahead (autocomplete) suggestions for a typed prefix. Without `sub` it returns subreddits whose names match the prefix (a leading r/ is ignored); with `sub` it returns posts in that subreddit whose titles match. Default 8 suggestions, at most 20. Needs no Reddit login. Billed at the read rate per call. Example: q='pyth' returns r/Python first.",
+    shape: {
+      q: z.string().min(1).max(100).describe("The typed prefix, e.g. 'pyth'. Required (alias `query`)."),
+      sub: z.string().optional().describe("Subreddit name without r/ (alias `subreddit`). When present, the suggestions are posts in that subreddit whose titles match `q` instead of subreddits."),
+      limit: z.number().int().min(1).max(20).optional().describe("Suggestions to return, 1 to 20 (default 8)."),
+      ...NSFW,
+    },
+  },
+  {
+    // Reddit's political-ad disclosures (r/RedditPoliticalAds), parsed (feedback a62b44d6). Read rate.
+    name: "reddit_political_ads",
+    path: "/api/reddit/political-ads",
+    description:
+      "Lists Reddit's political-ad disclosures (the r/RedditPoliticalAds posts), each parsed into advertiser, spend band, impressions, run dates and targeting, plus an `after` cursor. Newest first by default. Billed at the read rate per page.",
+    shape: {
+      sort: z.enum(["new", "top", "hot"]).optional().describe("'new' = most recent disclosure (default), 'top' = highest score in the `t` window, 'hot' = trending."),
+      t: z.enum(["hour", "day", "week", "month", "year", "all"]).optional().describe("Time window, applied only when sort is 'top'."),
+      ...LIMIT,
+      ...AFTER,
     },
   },
   {
@@ -865,6 +914,20 @@ export const TOOLS = [
     },
   },
   {
+    // Email targets only, as the API serves it (feedback a62b44d6): delivery mode, or pause/resume. Free.
+    name: "reddit_monitor_webhook_update",
+    path: "/api/reddit/monitor/webhook/update",
+    method: "POST",
+    write: true,
+    description:
+      "Changes an EMAIL delivery target: how often it emails (`delivery_mode` instant, hourly, daily or digest) or whether it is paused (`active`). Only the fields sent change; send at least one. A webhook, Slack or Discord target cannot be updated (400 webhook_not_updatable): delete it and create it again. Resuming a target clears its failure count. Free.",
+    shape: {
+      ...WEBHOOK_ID,
+      delivery_mode: z.enum(["instant", "hourly", "daily", "digest"]).optional().describe("instant = one email per match, hourly or daily = a batched email, digest = the default digest cadence."),
+      active: z.boolean().optional().describe("false pauses the target, true resumes it."),
+    },
+  },
+  {
     name: "reddit_monitor_webhook_delete",
     path: "/api/reddit/monitor/webhook/delete",
     method: "POST",
@@ -993,6 +1056,16 @@ export const TOOLS = [
     shape: {},
   },
   {
+    name: "reddit_session_check",
+    path: "/api/reddit/session/check",
+    method: "POST",
+    // Not read-only (79c72ae): a confirmed signed-out answer marks the stored session dead.
+    write: true,
+    description:
+      "Asks Reddit now whether the connected Reddit session is still signed in, before a write. The connection status reports what is stored and learns a session died only after a write failed on it; this checks it live and stores no cookies. Returns `valid`; when true, the account's username, `write_ready` (comment, submit, vote, dm: voting and messaging also need the CSRF cookie) and `missing_cookies`; when false, `code` SESSION_LOGGED_OUT (log in again and reconnect) or NO_SESSION (nothing connected). A logged-out stored session is marked dead. 502 SESSION_CHECK_FAILED means Reddit could not be reached, which says nothing about the session. Free.",
+    shape: {},
+  },
+  {
     name: "reddit_login",
     path: "/api/reddit/login",
     method: "POST",
@@ -1096,6 +1169,47 @@ export const TOOLS = [
       room_id: z.string().min(1).describe("The thread's room_id from the DM thread list (e.g. '!abc...:reddit.com'). Required."),
       limit: z.number().int().min(1).max(100).optional().describe("Messages per page, 1 to 100 (default 50)."),
       before: z.string().optional().describe("The previous response's `next_cursor`, for the next older page. Absent for the latest page."),
+    },
+  },
+
+  // ── PROFILE WRITES (POST /api/reddit/profile/*, feedback a62b44d6) ──
+  // Change the connected account's own Reddit profile through the stored session, like the writes above.
+  {
+    name: "reddit_profile_description",
+    path: "/api/reddit/profile/description",
+    method: "POST",
+    write: true,
+    description:
+      "Sets the connected Reddit account's profile description (the 'about' text on its profile), replacing the current one. A public change under the customer's name, marked as a write so a client can ask before it runs. An empty string clears it. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
+    shape: {
+      description: z.string().max(200).describe("The new profile description, up to 200 characters. Required; an empty string clears it."),
+    },
+  },
+  {
+    name: "reddit_profile_display_name",
+    path: "/api/reddit/profile/display-name",
+    method: "POST",
+    write: true,
+    description:
+      "Sets the connected Reddit account's display name (the name shown above the username on its profile), replacing the current one. The username itself stays the same. A public change under the customer's name, marked as a write so a client can ask before it runs. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
+    shape: {
+      display_name: z.string().max(90).describe("The new display name, up to 90 characters. Required."),
+    },
+  },
+  {
+    name: "reddit_profile_avatar",
+    path: "/api/reddit/profile/avatar",
+    validate: (args) => ((args.image_url ? 1 : 0) + (args.image_base64 ? 1 : 0) === 1 ? null : "send exactly one of `image_url` or `image_base64`."),
+    method: "POST",
+    write: true,
+    description:
+      "Uploads a new avatar (or, with kind 'banner', profile banner) for the connected Reddit account, replacing the current image. Reddit keeps no history of the old one, so save it first if it matters. PNG or JPEG only. Send exactly one of `image_url` or `image_base64`; both or neither is refused before any request. A public change under the customer's name, marked as a write so a client can ask before it runs. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
+    shape: {
+      image_url: z.string().url().optional().describe("Public https URL of a PNG or JPEG image. Send this or image_base64, not both."),
+      image_base64: z.string().min(1).optional().describe("PNG or JPEG bytes, base64-encoded. Send this or image_url, not both."),
+      kind: z.enum(["avatar", "banner"]).optional().describe("avatar (default) or banner."),
+      mimetype: z.string().optional().describe("image/png or image/jpeg. Optional; when omitted, the API detects it from the image bytes."),
+      filename: z.string().optional().describe("File name to upload under, e.g. 'avatar.png'. Optional."),
     },
   },
 

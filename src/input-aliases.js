@@ -13,11 +13,24 @@
 // because the canonical input becomes optional in the published schema so the
 // alias alone can satisfy it.
 
-// alias -> canonical, and where the alias applies.
+// alias -> canonical, and where the alias applies. 0.22.0 widened the set to the rest of the catalog: a subreddit
+// is `name` on the /sub/{name} tools and `subreddit` elsewhere, so each accepts the other; a comment id, a post id on
+// the comment-tree tool, a DM recipient and the typeahead's subreddit take the name callers send for them.
+const pathHas = (tool, part) => typeof tool.path === "string" && tool.path.includes(part);
+const shapeHas = (tool, key) => Boolean(tool.shape && tool.shape[key]);
+// zod 3 names the kind in _def.typeName ("ZodArray"), zod 4 in _def.type ("array"); the package accepts both.
+export const isArraySchema = (s) => Boolean(s && s._def && (s._def.typeName === "ZodArray" || s._def.type === "array"));
 export const INPUT_ALIASES = [
-  { alias: "username", canonical: "name", applies: (tool) => typeof tool.path === "string" && tool.path.includes("/user/{name}") },
-  { alias: "query", canonical: "q", applies: (tool) => Boolean(tool.shape && tool.shape.q) },
-  { alias: "post_id", canonical: "id", applies: (tool) => typeof tool.path === "string" && tool.path.includes("/post/{id}") },
+  { alias: "username", canonical: "name", applies: (tool) => pathHas(tool, "/user/{name}") },
+  { alias: "query", canonical: "q", applies: (tool) => shapeHas(tool, "q") },
+  { alias: "post_id", canonical: "id", applies: (tool) => pathHas(tool, "/post/{id}") },
+  { alias: "subreddit", canonical: "name", applies: (tool) => pathHas(tool, "/sub/{name}") },
+  // Only where `subreddit` is the one required subreddit (a listing or a submit), never an optional search filter.
+  { alias: "name", canonical: "subreddit", applies: (tool) => shapeHas(tool, "subreddit") && !tool.shape.subreddit.isOptional() && !isArraySchema(tool.shape.subreddit) },
+  { alias: "comment_id", canonical: "id", applies: (tool) => pathHas(tool, "/comment/{id}") },
+  { alias: "id", canonical: "post_id", applies: (tool) => shapeHas(tool, "post_id") },
+  { alias: "username", canonical: "to_username", applies: (tool) => shapeHas(tool, "to_username") },
+  { alias: "subreddit", canonical: "sub", applies: (tool) => shapeHas(tool, "sub") },
 ];
 
 /** The aliases one tool accepts: [{ alias, canonical, required }]. */

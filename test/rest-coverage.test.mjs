@@ -18,6 +18,14 @@ const REQUIRED = [
   ["GET", "/api/reddit/subreddits/batch", false],
   ["GET", "/api/reddit/users/batch", false],
   ["POST", "/api/reddit/login", true],
+  ["POST", "/api/reddit/session/check", true],
+  // 0.22.0: the rest of the routes the feedback named.
+  ["GET", "/api/reddit/typeahead", false],
+  ["GET", "/api/reddit/political-ads", false],
+  ["POST", "/api/reddit/profile/description", true],
+  ["POST", "/api/reddit/profile/display-name", true],
+  ["POST", "/api/reddit/profile/avatar", true],
+  ["POST", "/api/reddit/monitor/webhook/update", true],
 ];
 
 let n = 0;

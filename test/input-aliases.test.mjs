@@ -13,7 +13,7 @@ const ok = (m) => { n += 1; console.log(`  ok  ${m}`); };
 function recordingFetch() {
   const calls = [];
   const impl = async (url, init) => {
-    calls.push({ url: String(url), method: init?.method });
+    calls.push({ url: String(url), method: init?.method, body: init?.body });
     return { ok: true, status: 200, headers: { get: () => null }, text: async () => "{}" };
   };
   return { calls, impl };
@@ -89,6 +89,63 @@ const url = () => new URL(calls[calls.length - 1].url);
   assert.match(both.content[0].text, /both sent with different values/);
   assert.equal(calls.length, before, "no request was made");
   ok("a missing required input and a conflicting alias are refused without a request");
+}
+
+// 6. every alias added in 0.22.0 produces the same request as its canonical name
+{
+  calls.length = 0;
+  const lastReq = async (name, args) => {
+    const r = await c.callTool({ name, arguments: args });
+    assert.ok(!r.isError, `${name} ${JSON.stringify(args)}: ${JSON.stringify(r.content)}`);
+    const last = calls[calls.length - 1];
+    // Same request regardless of argument order: sorted query params, parsed body.
+    const u = new URL(last.url);
+    u.searchParams.sort();
+    return { url: u.toString(), method: last.method, body: last.body ? JSON.parse(last.body) : undefined };
+  };
+  const CASES = [
+    ["reddit_subreddit_about", { subreddit: "python" }, { name: "python" }],
+    ["reddit_subreddit_top", { subreddit: "python", t: "week" }, { name: "python", t: "week" }],
+    ["reddit_subreddit_can_post", { subreddit: "python" }, { name: "python" }],
+    ["reddit_subreddit_wiki", { subreddit: "python", page: "index" }, { name: "python", page: "index" }],
+    ["reddit_subreddit_posts", { name: "python", sort: "new" }, { subreddit: "python", sort: "new" }],
+    ["reddit_comment_by_id", { comment_id: "abc123" }, { id: "abc123" }],
+    ["reddit_post_comments", { id: "1sgjld3" }, { post_id: "1sgjld3" }],
+    ["reddit_post_comments_expanded", { post_id: "1sgjld3" }, { id: "1sgjld3" }],
+    ["reddit_typeahead", { query: "pyth", subreddit: "learnpython" }, { q: "pyth", sub: "learnpython" }],
+    ["reddit_user_submitted", { username: "spez" }, { name: "spez" }],
+    ["reddit_submit", { name: "test", kind: "self", title: "t", text: "b" }, { subreddit: "test", kind: "self", title: "t", text: "b" }],
+    ["reddit_dm", { username: "spez", message: "hi" }, { to_username: "spez", message: "hi" }],
+  ];
+  for (const [tool, aliased, canonical] of CASES) {
+    const a = await lastReq(tool, aliased);
+    const b = await lastReq(tool, canonical);
+    assert.deepEqual(a, b, `${tool}: the alias call and the canonical call sent different requests`);
+    const sent = new URL(a.url);
+    for (const k of Object.keys(aliased)) {
+      if (!(k in canonical)) {
+        assert.equal(sent.searchParams.has(k), false, `${tool}: alias ${k} leaked into the query`);
+        if (a.body) assert.equal(k in a.body, false, `${tool}: alias ${k} leaked into the body`);
+      }
+    }
+  }
+  ok(`${CASES.length} tools: each 0.22.0 alias sends exactly the request its canonical name sends`);
+}
+
+// 7. the post_comments route takes permalink, url or post_id; an existing permalink call is unchanged
+{
+  await c.callTool({ name: "reddit_post_comments", arguments: { permalink: "/r/x/comments/abc123/t/" } });
+  assert.equal(url().searchParams.get("permalink"), "/r/x/comments/abc123/t/");
+  assert.equal(url().searchParams.has("post_id"), false);
+  const { tools } = await c.listTools();
+  const dm = tools.find((x) => x.name === "reddit_dm");
+  assert.match(dm.inputSchema.properties.username.description, /Alias of `to_username`/);
+  const about = tools.find((x) => x.name === "reddit_subreddit_about");
+  assert.match(about.inputSchema.properties.subreddit.description, /Alias of `name`/);
+  // A search filter named subreddit is not a required subreddit: `name` is not offered there.
+  const search = tools.find((x) => x.name === "reddit_search");
+  assert.equal(search.inputSchema.properties.name, undefined);
+  ok("permalink still works on reddit_post_comments; aliases are published with their canonical name");
 }
 
 console.log(`\ninput-aliases: ${n} passed`);
