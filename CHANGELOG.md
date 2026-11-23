@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.1 (2026-11-24)
+
+Docs only, no tool change (76 tools).
+
+- README FAQ: the monitor and webhook tool count reads 12, matching the catalog (feedback 61622c1b).
+
 ## 0.22.0 (2026-11-23)
 
 Seven new tools (registry 13417, feedback 76cd7e71 and a62b44d6) and input aliases across the catalog (feedback 85f3f21b).
