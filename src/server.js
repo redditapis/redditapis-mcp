@@ -515,6 +515,9 @@ export function createServer({
       async (args, extra) => {
         const n = normalizeArgs(tool, args);
         if (n.error) return { isError: true, content: [{ type: "text", text: n.error }] };
+        // A catalog `validate` refuses inputs the schema cannot express (one-of, cross-field), before any request.
+        const invalid = typeof tool.validate === "function" ? tool.validate(n.args || {}) : null;
+        if (invalid) return { isError: true, content: [{ type: "text", text: `${tool.name}: ${invalid}` }] };
         return inner(n.args, extra);
       },
     );

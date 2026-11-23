@@ -222,6 +222,14 @@ const WEBHOOK_ID = {
   id: z.string().min(1).describe("The webhook's id, as returned when the webhook was created or listed."),
 };
 
+// The base-36 post id in a permalink, post URL or bare/t3_ id, lowercased; null when none can be read.
+export function postIdOf(v) {
+  const s = String(v).trim();
+  const m = /\/(?:comments|gallery)\/([A-Za-z0-9]{1,16})(?:[/?#]|$)/.exec(s) || /^https?:\/\/redd\.it\/([A-Za-z0-9]{1,16})/i.exec(s) ||
+    /^(?:t3_)?([A-Za-z0-9]{1,16})$/.exec(s);
+  return m ? m[1].toLowerCase() : null;
+}
+
 // The tool catalog. Path params are {name}/{id} placeholders. Monitor/webhook
 // tools additionally carry `write`/`destructive` and, for POST tools whose
 // body nests a filter_spec, `filterSpecFields` (see buildBody below).
@@ -316,6 +324,14 @@ export const TOOLS = [
   {
     name: "reddit_post_comments",
     path: "/api/reddit/comments",
+    // Two inputs naming different posts are refused here, before a request (the API would read the permalink).
+    validate: (args) => {
+      const ids = ["permalink", "url", "post_id"].filter((k) => typeof args[k] === "string" && args[k] !== "")
+        .map((k) => [k, postIdOf(args[k])]);
+      const known = ids.filter(([, id]) => id);
+      const clash = known.find(([, id]) => id !== known[0][1]);
+      return clash ? `\`${known[0][0]}\` and \`${clash[0]}\` name different posts; send one of them.` : null;
+    },
     description:
       "Fetches a single post and its comment tree by permalink, post URL or post id (send one). Returns the post plus threaded comments (author, body, score, replies) and an `after` cursor. The `permalink` is the one carried by any post result. Size a big thread with the three knobs: `limit` caps top-level comments (1-500, default 100), `depth` caps reply depth (1-10; `depth=1` is top-level only; absent is the full tree) and `sort` orders them (confidence = Reddit's best, top, new, controversial, old, qa). `limit=20, depth=1, sort='top'` reads the twenty best top-level comments and nothing below them, which keeps a 2,700-comment thread readable. `meta` echoes limit_used, depth_used and sort_used; with no `sort` sent, sort_used names the sort Reddit applied and sort_defaulted is true. `format='normalized'` returns flat comments instead of Reddit's raw tree.",
     shape: {
@@ -326,7 +342,7 @@ export const TOOLS = [
         "Any reddit.com, old.reddit.com or redd.it post URL, in place of `permalink`.",
       ),
       post_id: z.string().min(1).optional().describe(
-        "The post id (t3_ prefix optional), in place of `permalink` (alias `id`).",
+        "The post id (t3_ prefix optional), in place of `permalink` (alias `id`). Sent with a `permalink` or `url` naming a different post, the call is refused.",
       ),
       limit: z.number().int().min(1).max(500).optional().describe(
         "Maximum top-level comments, 1-500 (default 100). A small value with depth=1 gives a readable summary of a large thread.",
@@ -449,7 +465,7 @@ export const TOOLS = [
     shape: {
       q: z.string().min(1).max(100).describe("The typed prefix, e.g. 'pyth'. Required (alias `query`)."),
       sub: z.string().optional().describe("Subreddit name without r/ (alias `subreddit`). When present, the suggestions are posts in that subreddit whose titles match `q` instead of subreddits."),
-      limit: z.number().int().min(1).max(20).optional().describe("Suggestions to return, 1 to 20 (default 8). Out-of-range numbers are clamped."),
+      limit: z.number().int().min(1).max(20).optional().describe("Suggestions to return, 1 to 20 (default 8)."),
       ...NSFW,
     },
   },
@@ -1046,7 +1062,7 @@ export const TOOLS = [
     // Not read-only (79c72ae): a confirmed signed-out answer marks the stored session dead.
     write: true,
     description:
-      "Asks Reddit now whether the connected Reddit session is still signed in, before a write. The connection status reports what is stored and learns a session died only after a write failed on it; this checks it live and stores nothing. Returns `valid`; when true, the account's username, `write_ready` (comment, submit, vote, dm: voting and messaging also need the CSRF cookie) and `missing_cookies`; when false, `code` SESSION_LOGGED_OUT (log in again and reconnect) or NO_SESSION (nothing connected). A logged-out stored session is marked dead. 502 SESSION_CHECK_FAILED means Reddit could not be reached, which says nothing about the session. Free.",
+      "Asks Reddit now whether the connected Reddit session is still signed in, before a write. The connection status reports what is stored and learns a session died only after a write failed on it; this checks it live and stores no cookies. Returns `valid`; when true, the account's username, `write_ready` (comment, submit, vote, dm: voting and messaging also need the CSRF cookie) and `missing_cookies`; when false, `code` SESSION_LOGGED_OUT (log in again and reconnect) or NO_SESSION (nothing connected). A logged-out stored session is marked dead. 502 SESSION_CHECK_FAILED means Reddit could not be reached, which says nothing about the session. Free.",
     shape: {},
   },
   {
@@ -1183,15 +1199,16 @@ export const TOOLS = [
   {
     name: "reddit_profile_avatar",
     path: "/api/reddit/profile/avatar",
+    validate: (args) => ((args.image_url ? 1 : 0) + (args.image_base64 ? 1 : 0) === 1 ? null : "send exactly one of `image_url` or `image_base64`."),
     method: "POST",
     write: true,
     description:
-      "Uploads a new avatar (or, with kind 'banner', profile banner) for the connected Reddit account, replacing the current image. Reddit keeps no history of the old one, so save it first if it matters. Send exactly one of `image_url` or `image_base64`. A public change under the customer's name, marked as a write so a client can ask before it runs. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
+      "Uploads a new avatar (or, with kind 'banner', profile banner) for the connected Reddit account, replacing the current image. Reddit keeps no history of the old one, so save it first if it matters. PNG or JPEG only. Send exactly one of `image_url` or `image_base64`; both or neither is refused before any request. A public change under the customer's name, marked as a write so a client can ask before it runs. Billed at the write rate. With no connected session it answers 400 asking for cookies.",
     shape: {
-      image_url: z.string().url().optional().describe("Public https URL of the image to upload. Send this or image_base64, not both."),
-      image_base64: z.string().min(1).optional().describe("The image bytes, base64-encoded. Send this or image_url, not both."),
+      image_url: z.string().url().optional().describe("Public https URL of a PNG or JPEG image. Send this or image_base64, not both."),
+      image_base64: z.string().min(1).optional().describe("PNG or JPEG bytes, base64-encoded. Send this or image_url, not both."),
       kind: z.enum(["avatar", "banner"]).optional().describe("avatar (default) or banner."),
-      mimetype: z.string().optional().describe("Image type, e.g. 'image/png'. Optional; inferred when omitted."),
+      mimetype: z.string().optional().describe("image/png or image/jpeg. Optional; when omitted, the API detects it from the image bytes."),
       filename: z.string().optional().describe("File name to upload under, e.g. 'avatar.png'. Optional."),
     },
   },

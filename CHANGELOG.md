@@ -11,7 +11,7 @@ Seven new tools (registry 13417, feedback 76cd7e71 and a62b44d6) and input alias
 - `reddit_post_comments` also takes `url` or `post_id` (alias `id`) in place of `permalink`, as the REST route does; an existing `permalink` call is unchanged.
 - More aliases beside `username`, `query` and `post_id`: `subreddit` for `name` on the `/sub/{name}` tools and for `sub` on `reddit_typeahead`, `name` for `subreddit` on `reddit_subreddit_posts` and `reddit_submit`, `comment_id` for `id` on `reddit_comment_by_id`, and `username` for `to_username` on `reddit_dm`. Each alias is moved onto the canonical name before the request and never sent; the canonical name stays the documented one.
 
-- `reddit_session_check` asks Reddit now whether the connected session is still signed in, before a write: `valid`, the username and which writes it can make (`write_ready`). `reddit_session_status` reports only what is stored. Free; stores nothing. Needs the API release that ships `POST /api/reddit/session/check`; publish only after that route is live.
+- `reddit_session_check` asks Reddit now whether the connected session is still signed in, before a write: `valid`, the username and which writes it can make (`write_ready`). `reddit_session_status` reports only what is stored. Free; stores no cookies (a session Reddit confirms signed out is marked dead). Needs the API release that ships `POST /api/reddit/session/check`; publish only after that route is live.
 
 ## 0.21.0 (2026-11-19)
 

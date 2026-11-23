@@ -238,7 +238,7 @@ The bodies are documentation and name the calls they are recipes for, which is t
 |------|----------|--------------|
 | `reddit_connect` | `POST /api/reddit/session` | Store your Reddit session once (reddit_session and loid cookies; add csrf_token for votes and DMs). A logged-out session is refused. Free. |
 | `reddit_session_status` | `GET /api/reddit/session` | Whether a session is connected, its username, and when it was last used. Never returns the cookies. Free. |
-| `reddit_session_check` | `POST /api/reddit/session/check` | Ask Reddit now whether the connected session is still signed in, before a write: `valid`, the username and which writes it can make. Stores nothing. Free. |
+| `reddit_session_check` | `POST /api/reddit/session/check` | Ask Reddit now whether the connected session is still signed in, before a write: `valid`, the username and which writes it can make. Stores no cookies; a session Reddit confirms signed out is marked dead. Free. |
 | `reddit_disconnect` | `POST /api/reddit/session/delete` | Delete the stored session. Free. |
 | `reddit_login` | `POST /api/reddit/login` | Log in with a username and password (and TOTP secret for 2FA) to get the cookies `reddit_connect` takes. The cookies come back in the result. Not listed by a host that never takes Reddit credentials. |
 | `reddit_comment` | `POST /api/reddit/comment` | Comment on a post as you. |
