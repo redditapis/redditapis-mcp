@@ -100,8 +100,9 @@ export const TOOL_ANNOTATIONS = {
   // credential, so both are destructive.
   reddit_connect: { title: "Connect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: true },
   reddit_session_status: { title: "Reddit Connection Status", ...READ_OWN },
-  // Asks Reddit (openWorld) and changes nothing it was not already true of: a logged-out row is marked dead.
-  reddit_session_check: { title: "Reddit Session Validity", ...READ_REDDIT },
+  // Asks Reddit (openWorld). Not read-only: a confirmed signed-out answer marks the stored session dead.
+  // Idempotent (a second call finds the same state) and not destructive (nothing the user owns is removed).
+  reddit_session_check: { title: "Reddit Session Validity", readOnly: false, destructive: false, idempotent: true, openWorld: true },
   // A real login at Reddit: not idempotent (each call is a new login), not destructive.
   reddit_login: { title: "Reddit Account Login", readOnly: false, destructive: false, idempotent: false, openWorld: true },
   reddit_disconnect: { title: "Disconnect Reddit Account", readOnly: false, destructive: true, idempotent: true, openWorld: false },
